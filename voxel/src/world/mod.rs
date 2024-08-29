@@ -38,7 +38,7 @@ impl World {
     }
 
     pub fn update(&mut self, camera: &Camera, context: &Context) {
-        let origin = camera.view.position().as_ivec3() / Chunk::SIZE as i32;
+        let origin = camera.transformation().position().as_ivec3() / Chunk::SIZE as i32;
 
         for x in -HORIZONTAL_RENDER_DISTANCE..HORIZONTAL_RENDER_DISTANCE {
             for z in -HORIZONTAL_RENDER_DISTANCE..HORIZONTAL_RENDER_DISTANCE {

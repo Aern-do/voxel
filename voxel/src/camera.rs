@@ -17,47 +17,63 @@ impl CameraUniform {
         Self::default()
     }
 
-    pub fn update_view_projection(mut self, view: &CameraView) -> Self {
-        self.projection_matrix = view.calculate_projection_matrix();
-        self.transformation_matrix = view.calculate_transformation_matrix();
+    pub fn update_view_projection(
+        mut self,
+        projection: &Projection,
+        transformation: &Transformation,
+    ) -> Self {
+        self.projection_matrix = projection.calculate_matrix();
+        self.transformation_matrix = transformation.calculate_matrix();
         self
     }
 }
 
 #[derive(Debug)]
 pub struct Camera {
+    controller: CameraController,
     uniform: Uniform<CameraUniform>,
 
-    controller: CameraController,
-    pub view: CameraView,
+    projection: Projection,
+    transformation: Transformation,
 }
 
 impl Camera {
-    pub const FRONT: Vec3 = Vec3::new(0.0, 0.0, 1.0);
-
-    pub fn new(camera_view: CameraView, graphics: &Context) -> Self {
+    pub fn new(transformation: Transformation, projection: Projection, graphics: &Context) -> Self {
         Self {
-            view: camera_view,
-            controller: CameraController::new(),
-
             uniform: Uniform::new(CameraUniform::new(), graphics),
+            controller: CameraController::default(),
+
+            projection,
+            transformation,
         }
     }
 
     pub fn update(&mut self, dt: Duration, context: &Context) {
-        self.controller.update_camera(&mut self.view, dt);
+        self.controller.update_camera(&mut self.transformation, dt);
         self.uniform.map(
-            |uniform| uniform.update_view_projection(&self.view),
+            |uniform| uniform.update_view_projection(&self.projection, &self.transformation),
             context,
         );
     }
 
-    pub fn uniform(&self) -> &Uniform<CameraUniform> {
-        &self.uniform
+    pub fn process_mouse(&mut self, mouse_dx: f64, mouse_dy: f64) {
+        self.controller.process_mouse(mouse_dx, mouse_dy)
     }
 
-    pub fn controller(&mut self) -> &mut CameraController {
-        &mut self.controller
+    pub fn process_keyboard(&mut self, key_code: KeyCode, state: ElementState) {
+        self.controller.process_keyboard(key_code, state)
+    }
+
+    pub fn calculate_matrix(&self) -> Mat4 {
+        self.projection.calculate_matrix() * self.transformation.calculate_matrix()
+    }
+
+    pub fn projection(&self) -> Projection {
+        self.projection
+    }
+
+    pub fn transformation(&self) -> Transformation {
+        self.transformation
     }
 }
 
@@ -69,40 +85,23 @@ impl AsBindGroup for Camera {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct CameraView {
+#[derive(Debug, Clone, Copy)]
+pub struct Transformation {
     position: Vec3,
     yaw: f32,
     pitch: f32,
-
-    aspect: f32,
-    fovy: f32,
-    znear: f32,
-    zfar: f32,
 }
 
-impl CameraView {
-    pub fn new(
-        position: Vec3,
-        yaw: f32,
-        pitch: f32,
-        size: PhysicalSize<u32>,
-        fovy: f32,
-        znear: f32,
-        zfar: f32,
-    ) -> Self {
+impl Transformation {
+    pub fn new(position: Vec3, yaw: f32, pitch: f32) -> Self {
         Self {
             position,
             yaw,
             pitch,
-            aspect: size.width as f32 / size.height as f32,
-            fovy,
-            znear,
-            zfar,
         }
     }
 
-    pub fn calculate_transformation_matrix(&self) -> Mat4 {
+    pub fn calculate_matrix(&self) -> Mat4 {
         let (sin_pitch, cos_pitch) = self.pitch.sin_cos();
         let (sin_yaw, cos_yaw) = self.yaw.sin_cos();
 
@@ -113,53 +112,31 @@ impl CameraView {
         )
     }
 
-    pub fn calculate_projection_matrix(&self) -> Mat4 {
-        Mat4::perspective_rh(self.fovy, self.aspect, self.znear, self.zfar)
-    }
-
-    pub fn front(&self) -> Vec3 {
-        Vec3::new(
-            self.yaw.cos() * self.pitch.cos(),
-            self.pitch.sin(),
-            self.yaw.sin() * self.pitch.cos(),
-        )
-        .normalize()
-    }
-
-    pub fn right(&self) -> Vec3 {
-        self.front().cross(Vec3::Y).normalize()
-    }
-
-    pub fn up(&self) -> Vec3 {
-        self.right().cross(self.front()).normalize()
-    }
-
     pub fn position(&self) -> Vec3 {
         self.position
     }
+}
 
-    pub fn yaw(&self) -> f32 {
-        self.yaw
+#[derive(Debug, Clone, Copy)]
+pub struct Projection {
+    aspect: f32,
+    fovy: f32,
+    znear: f32,
+    zfar: f32,
+}
+
+impl Projection {
+    pub fn new(size: PhysicalSize<u32>, fovy: f32, znear: f32, zfar: f32) -> Self {
+        Self {
+            aspect: size.width as f32 / size.height as f32,
+            fovy,
+            znear,
+            zfar,
+        }
     }
 
-    pub fn pitch(&self) -> f32 {
-        self.pitch
-    }
-
-    pub fn aspect(&self) -> f32 {
-        self.aspect
-    }
-
-    pub fn fovy(&self) -> f32 {
-        self.fovy
-    }
-
-    pub fn znear(&self) -> f32 {
-        self.znear
-    }
-
-    pub fn zfar(&self) -> f32 {
-        self.zfar
+    pub fn calculate_matrix(&self) -> Mat4 {
+        Mat4::perspective_rh(self.fovy, self.aspect, self.znear, self.zfar)
     }
 }
 
@@ -200,23 +177,23 @@ impl CameraController {
         self.rotate_vertical = mouse_dy as f32;
     }
 
-    pub fn update_camera(&mut self, camera: &mut CameraView, dt: Duration) {
+    pub fn update_camera(&mut self, transformation: &mut Transformation, dt: Duration) {
         const SENSITIVITY: f32 = 45.0;
         const SPEED: f32 = 48.0;
 
         let dt = dt.as_secs_f32();
 
-        let (yaw_sin, yaw_cos) = camera.yaw.sin_cos();
-        let (pitch_sin, pitch_cos) = camera.pitch.sin_cos();
+        let (yaw_sin, yaw_cos) = transformation.yaw.sin_cos();
+        let (pitch_sin, pitch_cos) = transformation.pitch.sin_cos();
 
         let forward = Vec3::new(yaw_cos * pitch_cos, pitch_sin, yaw_sin * pitch_cos).normalize();
         let horizontal = Vec3::new(-yaw_sin, 0.0, yaw_cos).normalize();
 
-        camera.position += forward * self.move_forward * SPEED * dt;
-        camera.position += horizontal * self.move_horizontal * SPEED * dt;
+        transformation.position += forward * self.move_forward * SPEED * dt;
+        transformation.position += horizontal * self.move_horizontal * SPEED * dt;
 
-        camera.yaw += (self.rotate_horizontal.to_radians()) * SENSITIVITY * dt;
-        camera.pitch += (-self.rotate_vertical.to_radians()) * SENSITIVITY * dt;
+        transformation.yaw += (self.rotate_horizontal.to_radians()) * SENSITIVITY * dt;
+        transformation.pitch += (-self.rotate_vertical.to_radians()) * SENSITIVITY * dt;
 
         self.rotate_horizontal = 0.0;
         self.rotate_vertical = 0.0;
