@@ -1,0 +1,11 @@
+[workspace]
+members = ["voxel", "voxel-util"]
+
+[workspace.dependencies]
+voxel-util = { path = "voxel-util" }
+wgpu = { version = "0.20.1", features = ["naga-ir"] }
+smallvec = "1.13.2"
+thiserror = "1.0.63"
+winit = "0.30.3"
+image = "0.25.1"
+bytemuck = "1.16.1"
