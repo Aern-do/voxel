@@ -6,17 +6,18 @@ pub mod mesher;
 
 pub use block::{Block, Visibility};
 pub use chunk::Chunk;
+use chunk::SECTION_SIZE;
 use chunk::{ChunkNeighborhood, ChunkSectionPosition, Volume};
 pub use face::{Direction, Face};
 use generator::{DefaultGenerator, Generate};
 pub use mesher::{create_mesh, RawMesh};
-use rayon::iter::IntoParallelRefIterator;
 use rayon::iter::ParallelBridge;
 use rayon::iter::ParallelIterator;
+use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator};
 use std::iter;
 use voxel_util::Context;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::LazyLock;
 
 use glam::IVec3;
@@ -66,19 +67,28 @@ impl World {
     pub fn update(&mut self, camera: &Camera, context: &Context) {
         let origin = camera.transformation().position().as_ivec3() / Chunk::SIZE as i32;
 
-        {
-            let positions = {
-                GENERATING_SECTIONS
-                    .iter()
-                    .copied()
-                    .filter_map(|position| {
-                        let position =
-                            ChunkSectionPosition::new(position.x + origin.x, position.z + origin.z);
-                        (!self.generated_sections.contains(&position)).then_some(position)
-                    })
-                    .collect::<Vec<_>>()
-            };
-            self.generate(&positions);
+        let generated_positions = {
+            GENERATING_SECTIONS
+                .iter()
+                .copied()
+                .filter_map(|position| {
+                    let position =
+                        ChunkSectionPosition::new(position.x + origin.x, position.z + origin.z);
+                    (!self.generated_sections.contains(&position)).then_some(position)
+                })
+                .collect::<BTreeSet<_>>()
+        };
+        if !generated_positions.is_empty() {
+            self.generate_sections(&generated_positions);
+
+            let sections_positions = generated_positions
+                .par_iter()
+                .copied()
+                .flat_map_iter(|position| position.adjacent())
+                .filter(|position| self.generated_sections.contains(position))
+                .filter(|position| !generated_positions.contains(&position))
+                .collect::<BTreeSet<_>>();
+            self.update_sections_meshes(sections_positions, context);
         }
 
         {
@@ -89,13 +99,7 @@ impl World {
                 .filter(|position| !self.meshes.contains_key(position));
             let meshes = positions
                 .par_bridge()
-                .map(|position| {
-                    let neighborhood = ChunkNeighborhood::new(self, position);
-                    let mesh = create_mesh(neighborhood);
-                    let mesh = ChunkBuffer::from_mesh(&mesh, position, context);
-
-                    (position, mesh)
-                })
+                .map(|position| (position, self.make_mesh(position, context)))
                 .collect::<Vec<_>>();
             self.meshes.extend(meshes);
         }
@@ -105,7 +109,7 @@ impl World {
         self.chunks.get(&position).unwrap_or(&EMPTY_CHUNK)
     }
 
-    pub fn generate(&mut self, positions: &[ChunkSectionPosition]) {
+    pub fn generate_sections(&mut self, positions: &BTreeSet<ChunkSectionPosition>) {
         let chunks = positions
             .par_iter()
             .copied()
@@ -121,5 +125,36 @@ impl World {
 
         self.chunks.extend(chunks);
         self.generated_sections.extend(positions);
+    }
+
+    pub fn update_meshes(
+        &mut self,
+        chunk_positions: impl ParallelIterator<Item = IVec3>,
+        context: &Context,
+    ) {
+        let meshes = chunk_positions
+            .map(|position| (position, self.make_mesh(position, context)))
+            .collect::<Vec<_>>();
+        self.meshes.extend(meshes);
+    }
+
+    pub fn update_sections_meshes(
+        &mut self,
+        section_positions: impl IntoParallelIterator<Item = ChunkSectionPosition>,
+        context: &Context,
+    ) {
+        let chunk_positions = section_positions
+            .into_par_iter()
+            .flat_map_iter(|section_position| {
+                (0..SECTION_SIZE as i32).map(move |y| section_position.with_y(y))
+            });
+        self.update_meshes(chunk_positions, context);
+    }
+
+    pub fn make_mesh(&self, position: IVec3, context: &Context) -> ChunkBuffer {
+        let neighborhood = ChunkNeighborhood::new(self, position);
+        let mesh = create_mesh(neighborhood);
+        let mesh = ChunkBuffer::from_mesh(&mesh, position, context);
+        mesh
     }
 }

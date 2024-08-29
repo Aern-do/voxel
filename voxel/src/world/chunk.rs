@@ -111,7 +111,7 @@ impl Index<UVec3> for ChunkNeighborhood<'_> {
 
 pub const SECTION_SIZE: usize = 16;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ChunkSectionPosition {
     pub x: i32,
     pub z: i32,
@@ -128,6 +128,15 @@ impl ChunkSectionPosition {
             y,
             z: self.z,
         }
+    }
+
+    pub const fn adjacent(self) -> [ChunkSectionPosition; 4] {
+        [
+            Self::new(self.x - 1, self.z),
+            Self::new(self.x + 1, self.z),
+            Self::new(self.x, self.z - 1),
+            Self::new(self.x, self.z + 1),
+        ]
     }
 }
 
