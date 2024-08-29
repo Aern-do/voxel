@@ -12,7 +12,7 @@ pub mod camera;
 pub mod error;
 pub mod render;
 pub mod window;
-pub mod world2;
+pub mod world;
 
 #[macro_export]
 macro_rules! asset {

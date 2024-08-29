@@ -8,7 +8,7 @@ pub use renderer::Renderer;
 pub use vertex::Vertex;
 use wgpu::RenderPass;
 
-use crate::world2::World;
+use crate::world::World;
 
 pub trait Draw {
     fn draw<'r>(&'r self, render_pass: &mut RenderPass<'r>, frustum: &Frustum, world: &'r World);

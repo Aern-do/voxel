@@ -18,7 +18,7 @@ use crate::{
     camera::{Camera, CameraView},
     error::Error,
     render::{frustum_culling::Frustum, Renderer},
-    world2::World,
+    world::World,
 };
 
 #[derive(Debug)]
@@ -73,7 +73,7 @@ impl Application {
             self.camera.view.calculate_transformation_matrix()
                 * self.camera.view.calculate_projection_matrix(),
         );
-        
+
         self.renderer.draw(&frustum, &self.world);
         self.update()
     }

@@ -6,7 +6,7 @@ use wgpu::{
     TextureViewDescriptor,
 };
 
-use crate::world2::World;
+use crate::world::World;
 
 use super::{frustum_culling::Frustum, world_pass::WorldPass, Draw};
 

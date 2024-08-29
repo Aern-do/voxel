@@ -11,7 +11,7 @@ use wgpu::{
 
 use crate::{
     asset,
-    world2::{chunk::Volume, Chunk, RawMesh, World},
+    world::{chunk::Volume, Chunk, RawMesh, World},
 };
 
 use super::{
