@@ -5,34 +5,60 @@ pub mod generator;
 pub mod mesher;
 
 pub use block::{Block, Visibility};
-pub use chunk::{Chunk, ChunkNeighbors};
-use chunk::{ChunkSection, Volume};
+pub use chunk::Chunk;
+use chunk::{ChunkNeighborhood, ChunkSectionPosition, Volume};
 pub use face::{Direction, Face};
 use generator::{DefaultGenerator, Generate};
 pub use mesher::{create_mesh, RawMesh};
+use rayon::iter::IntoParallelRefIterator;
+use rayon::iter::ParallelBridge;
+use rayon::iter::ParallelIterator;
+use std::iter;
 use voxel_util::Context;
 
-use std::{
-    collections::HashMap,
-    sync::{Arc, LazyLock},
-};
+use std::collections::{HashMap, HashSet};
+use std::sync::LazyLock;
 
-use glam::{ivec3, IVec3};
+use glam::IVec3;
 
 use crate::{camera::Camera, render::world_pass::ChunkBuffer};
 
 const HORIZONTAL_RENDER_DISTANCE: i32 = 8;
 const VERTICAL_RENDER_DISTANCE: i32 = 2;
 
+pub static EMPTY_CHUNK: LazyLock<Chunk> = LazyLock::new(|| Chunk {
+    blocks: Default::default(),
+});
+
 #[derive(Debug, Default)]
 pub struct World {
-    chunks: HashMap<IVec3, Arc<Chunk>>,
+    chunks: HashMap<IVec3, Chunk>,
+    generated_sections: HashSet<ChunkSectionPosition>,
+    generator: DefaultGenerator,
     pub meshes: HashMap<IVec3, ChunkBuffer>,
 }
 
-impl World {
-    const EMPTY_CHUNK: LazyLock<Arc<Chunk>> = LazyLock::new(|| Arc::new(Chunk::default()));
+static GENERATING_SECTIONS: LazyLock<Box<[ChunkSectionPosition]>> = LazyLock::new(|| {
+    (-HORIZONTAL_RENDER_DISTANCE..HORIZONTAL_RENDER_DISTANCE + 1)
+        .flat_map(|x| {
+            iter::repeat(x).zip(-HORIZONTAL_RENDER_DISTANCE..HORIZONTAL_RENDER_DISTANCE + 1)
+        })
+        .map(|(x, z)| ChunkSectionPosition::new(x, z))
+        .collect()
+});
 
+static RENDERING_CHUNKS_OFFSETS: LazyLock<Box<[IVec3]>> = LazyLock::new(|| {
+    GENERATING_SECTIONS
+        .iter()
+        .copied()
+        .flat_map(|position| {
+            iter::repeat(position).zip(-VERTICAL_RENDER_DISTANCE..VERTICAL_RENDER_DISTANCE + 1)
+        })
+        .map(|(position, y)| position.with_y(y))
+        .collect()
+});
+
+impl World {
     pub fn new() -> Self {
         Self::default()
     }
@@ -40,59 +66,64 @@ impl World {
     pub fn update(&mut self, camera: &Camera, context: &Context) {
         let origin = camera.transformation().position().as_ivec3() / Chunk::SIZE as i32;
 
-        for x in -HORIZONTAL_RENDER_DISTANCE..HORIZONTAL_RENDER_DISTANCE {
-            for z in -HORIZONTAL_RENDER_DISTANCE..HORIZONTAL_RENDER_DISTANCE {
-                let position = ivec3(x + origin.x, 0, z + origin.z);
-                if self.chunks.contains_key(&position) {
-                    continue;
-                }
-
-                let mut generator = DefaultGenerator::default();
-                self.generate(&mut generator, position);
-            }
+        {
+            let positions = {
+                GENERATING_SECTIONS
+                    .iter()
+                    .copied()
+                    .filter_map(|position| {
+                        let position =
+                            ChunkSectionPosition::new(position.x + origin.x, position.z + origin.z);
+                        (!self.generated_sections.contains(&position)).then_some(position)
+                    })
+                    .collect::<Vec<_>>()
+            };
+            self.generate(&positions);
         }
 
-        for x in -HORIZONTAL_RENDER_DISTANCE..HORIZONTAL_RENDER_DISTANCE {
-            for z in -HORIZONTAL_RENDER_DISTANCE..HORIZONTAL_RENDER_DISTANCE {
-                for y in -VERTICAL_RENDER_DISTANCE..VERTICAL_RENDER_DISTANCE {
-                    let position = ivec3(x, y, z) + origin;
-                    if self.meshes.contains_key(&position) {
-                        continue;
-                    }
-
-                    let neighbors = ChunkNeighbors::new(position, self);
-
-                    let mut mesh = RawMesh::default();
-                    create_mesh(&neighbors, &mut mesh);
-
+        {
+            let positions = RENDERING_CHUNKS_OFFSETS
+                .iter()
+                .copied()
+                .map(|position| position + origin)
+                .filter(|position| !self.meshes.contains_key(position));
+            let meshes = positions
+                .par_bridge()
+                .map(|position| {
+                    let neighborhood = ChunkNeighborhood::new(self, position);
+                    let mesh = create_mesh(neighborhood);
                     let mesh = ChunkBuffer::from_mesh(&mesh, position, context);
-                    self.meshes.insert(origin + ivec3(x, y, z), mesh);
-                }
-            }
+
+                    (position, mesh)
+                })
+                .collect::<Vec<_>>();
+            self.meshes.extend(meshes);
         }
     }
 
-    pub fn get(&self, position: IVec3) -> Arc<Chunk> {
-        self.chunks
-            .get(&position)
-            .cloned()
-            .unwrap_or_else(|| World::EMPTY_CHUNK.clone())
+    pub fn get(&self, position: IVec3) -> &Chunk {
+        self.chunks.get(&position).unwrap_or(&EMPTY_CHUNK)
     }
 
     pub fn set(&mut self, position: IVec3, chunk: Chunk) {
-        self.chunks.insert(position, Arc::new(chunk));
+        self.chunks.insert(position, chunk);
     }
 
-    pub fn set_many(&mut self, chunks: impl Iterator<Item = (IVec3, Chunk)>) {
-        for (position, chunk) in chunks {
-            self.set(position, chunk)
-        }
-    }
+    pub fn generate(&mut self, positions: &[ChunkSectionPosition]) {
+        let chunks = positions
+            .par_iter()
+            .copied()
+            .flat_map_iter(|position| {
+                let section = self.generator.generate_section(position);
+                section
+                    .chunks
+                    .into_iter()
+                    .enumerate()
+                    .map(move |(y, chunk)| (position.with_y(y as i32), chunk))
+            })
+            .collect::<Vec<(IVec3, Chunk)>>();
 
-    pub fn generate<G: Generate>(&mut self, generator: &mut G, position: IVec3) {
-        let mut section = ChunkSection::new(position, self);
-        generator.generate(&mut section, position);
-
-        self.set_many(section.into_iter())
+        self.chunks.extend(chunks);
+        self.generated_sections.extend(positions);
     }
 }

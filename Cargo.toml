@@ -1,5 +1,6 @@
 [workspace]
 members = ["voxel", "voxel-util"]
+resolver = "2"
 
 [workspace.dependencies]
 voxel-util = { path = "voxel-util" }

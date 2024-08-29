@@ -34,7 +34,7 @@ impl Application {
         let window = Arc::new(window);
         let _ = window.set_cursor_grab(CursorGrabMode::Locked);
 
-        let context = Arc::new(Context::new(window.clone()).await?);
+        let context = Arc::new(Context::new(Arc::clone(&window)).await?);
         let camera = Camera::new(
             Transformation::new(
                 Vec3::new(-2.0, 90.0, -2.0),
@@ -45,7 +45,7 @@ impl Application {
             &context,
         );
 
-        let renderer = Renderer::new(camera.as_shader_resource(&context), context.clone());
+        let renderer = Renderer::new(camera.as_shader_resource(&context), Arc::clone(&context));
         let world = World::new();
 
         Ok(Self {

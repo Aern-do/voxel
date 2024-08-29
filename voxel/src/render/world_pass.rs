@@ -85,7 +85,7 @@ impl WorldPass {
 
         let render_pipeline = Self::create_pipeline(
             camera_resource.layout(),
-            &spritesheet_resource.layout(),
+            spritesheet_resource.layout(),
             context,
         );
 
@@ -132,7 +132,7 @@ impl Draw for WorldPass {
         render_pass.set_bind_group(1, self.spritesheet_resource.bind_group(), &[]);
 
         for chunk_buffer in world.meshes.values() {
-            if chunk_buffer.aabb.is_on_frustum(&frustum) {
+            if chunk_buffer.aabb.is_on_frustum(frustum) {
                 render_pass.set_bind_group(
                     2,
                     chunk_buffer.transformation_resource.bind_group(),

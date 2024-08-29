@@ -31,7 +31,7 @@ impl<'d> TextureData<'d> {
 impl<'d> From<&'d RgbaImage> for TextureData<'d> {
     fn from(image: &'d RgbaImage) -> Self {
         Self {
-            data: &image,
+            data: image,
             size: image.dimensions(),
             format: TextureFormat::Rgba8UnormSrgb,
         }
@@ -57,15 +57,15 @@ impl Texture {
         let texture = context.device().create_texture(&TextureDescriptor {
             label: None,
             size: Extent3d {
-                width: width,
-                height: height,
+                width,
+                height,
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
             sample_count: 1,
             dimension: TextureDimension::D2,
             format,
-            usage: usage,
+            usage,
             view_formats: &[],
         });
 

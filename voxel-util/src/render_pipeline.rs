@@ -59,9 +59,9 @@ impl ColorTargetStateBuilder {
     }
 }
 
-impl Into<ColorTargetState> for ColorTargetStateBuilder {
-    fn into(self) -> ColorTargetState {
-        self.build()
+impl From<ColorTargetStateBuilder> for ColorTargetState {
+    fn from(value: ColorTargetStateBuilder) -> Self {
+        value.build()
     }
 }
 
@@ -151,7 +151,7 @@ impl<'c> RenderPipelineBuilder<'c> {
     pub fn build(self) -> RenderPipeline {
         let (vertex_shader, vertex_entry_point) = self.base_pipeline.vertex;
         let vertex_state = VertexState {
-            module: &vertex_shader,
+            module: vertex_shader,
             entry_point: vertex_entry_point,
             compilation_options: PipelineCompilationOptions {
                 constants: &self.overrides,
@@ -162,7 +162,7 @@ impl<'c> RenderPipelineBuilder<'c> {
 
         let (fragment_shader, fragment_entry_point) = self.base_pipeline.fragment;
         let fragment_state = FragmentState {
-            module: &fragment_shader,
+            module: fragment_shader,
             entry_point: fragment_entry_point,
             compilation_options: PipelineCompilationOptions {
                 constants: &self.overrides,

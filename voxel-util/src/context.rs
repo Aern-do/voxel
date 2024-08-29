@@ -28,10 +28,10 @@ pub enum ContextError {
 
 #[derive(Debug)]
 pub struct Context {
-    surface: Surface<'static>,
     device: Device,
     queue: Queue,
     config: SurfaceConfiguration,
+    surface: Surface<'static>,
 }
 
 impl Context {
@@ -91,13 +91,13 @@ impl Context {
                     label: None,
                     entries,
                 }),
-            PhantomData::default(),
+            PhantomData,
         )
     }
 
-    pub fn create_shader_resource<'s, L: IntoLayout>(
+    pub fn create_shader_resource<L: IntoLayout>(
         &self,
-        bindings: L::Bindings<'s>,
+        bindings: L::Bindings<'_>,
     ) -> ShaderResource {
         let bind_group_layout = self.create_bind_group_layout::<L>();
         let bind_group = self.create_bind_group(&bind_group_layout, bindings);
@@ -105,10 +105,10 @@ impl Context {
         ShaderResource::new(bind_group, bind_group_layout.erase())
     }
 
-    pub fn create_bind_group<'s, L: IntoLayout>(
+    pub fn create_bind_group<L: IntoLayout>(
         &self,
         layout: &Layout<L>,
-        bindings: L::Bindings<'s>,
+        bindings: L::Bindings<'_>,
     ) -> BindGroup {
         let resources = bindings.into_binding_resources();
 

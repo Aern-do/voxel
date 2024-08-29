@@ -59,6 +59,7 @@ pub trait IntoLayout {
     fn into_binding_entries() -> &'static [BindGroupLayoutEntry];
 }
 
+// FIXME rename to `ToBindingResources` and `to_binding_resources`
 pub trait IntoBindingResources {
     fn into_binding_resources(&self) -> SmallVec<BindGroupEntry>;
 }

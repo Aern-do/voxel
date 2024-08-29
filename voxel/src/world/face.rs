@@ -101,7 +101,12 @@ impl Face {
         let mut index = 0;
 
         vertices.map(|vertex_position| {
-            let vertex = Vertex::new(vertex_position + self.position, self.ao[index], self.block.texture_id(), self.direction as u32);
+            let vertex = Vertex::new(
+                vertex_position + self.position,
+                self.ao[index],
+                self.block.texture_id(),
+                self.direction as u32,
+            );
             index += 1;
 
             vertex

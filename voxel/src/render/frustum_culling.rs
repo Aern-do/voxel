@@ -121,7 +121,7 @@ impl AABB {
             self.max,
         ];
 
-        let first = AABB::is_point_on_plane(&plane, corners[0]);
+        let first = AABB::is_point_on_plane(plane, corners[0]);
 
         for point in corners[1..].iter() {
             if AABB::is_point_on_plane(plane, *point) != first {
@@ -129,15 +129,17 @@ impl AABB {
             }
         }
 
-        return first;
+        first
     }
 
     pub fn is_on_frustum(&self, frustum: &Frustum) -> bool {
-        frustum.iter()
+        frustum
+            .iter()
             .fold(Relation::Inside, |cur, plane| {
-                let result = self.is_on_plane(&plane);
+                let result = self.is_on_plane(plane);
 
                 max(result, cur)
-            }).is_inside()
+            })
+            .is_inside()
     }
 }

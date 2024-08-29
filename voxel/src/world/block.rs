@@ -6,14 +6,14 @@ macro_rules! define_block {
         }
 
         impl Block {
-            pub fn visibility(&self) -> Visibility {
+            pub fn visibility(self) -> Visibility {
                 match self {
                     $(Self::$block => Visibility::$visibility),*
                 }
             }
 
-            pub fn texture_id(&self) -> u32 {
-                *self as u32
+            pub fn texture_id(self) -> u32 {
+                self as u32
             }
         }
     };

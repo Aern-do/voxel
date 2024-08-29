@@ -1,14 +1,15 @@
-use glam::{uvec3, UVec3};
+use std::iter;
 
-use crate::render::Vertex;
+use glam::{ivec3, uvec3, UVec3};
 
-use super::{chunk::ChunkNeighbors, face::Face, Direction, Visibility};
+use crate::{render::Vertex, world::chunk::CHUNK_SIZE};
+
+use super::{chunk::ChunkNeighborhood, face::Face, Direction, Visibility};
 
 #[derive(Debug, Default, Clone)]
 pub struct RawMesh {
     verticies: Vec<Vertex>,
     indices: Vec<u16>,
-
     offset: u16,
 }
 
@@ -17,14 +18,14 @@ impl RawMesh {
         Self::default()
     }
 
+    pub fn verticies(&self) -> &[Vertex] {
+        &self.verticies
+    }
+
     pub fn push_face(&mut self, block_face: Face) {
         self.verticies.extend(block_face.vertices());
         self.indices.extend(Face::indices(self.offset));
         self.offset += 1;
-    }
-
-    pub fn verticies(&self) -> &[Vertex] {
-        &self.verticies
     }
 
     pub fn indices(&self) -> &[u16] {
@@ -32,118 +33,132 @@ impl RawMesh {
     }
 }
 
-pub fn create_mesh(chunk: &ChunkNeighbors, mesh: &mut RawMesh) {
-    for (x, y, z) in ChunkNeighbors::meshing_range() {
-        let position = uvec3(x, y, z);
-        let current = chunk[position];
+// Making this `static` does not give any effect
+const NEIGHBORS: [Direction; 6] = [
+    Direction::Bottom,
+    Direction::Top,
+    Direction::Left,
+    Direction::Right,
+    Direction::Front,
+    Direction::Back,
+];
 
-        let neighbors = [
-            Direction::Bottom,
-            Direction::Top,
-            Direction::Left,
-            Direction::Right,
-            Direction::Front,
-            Direction::Back,
-        ];
+pub fn create_mesh(neighborhood: ChunkNeighborhood) -> RawMesh {
+    // Making this `static` does not give any effect
+    let meshing_range = (1..CHUNK_SIZE as u32 + 1)
+        .flat_map(move |i| iter::repeat(i).zip(1..CHUNK_SIZE as u32 + 1))
+        .flat_map(move |i| iter::repeat(i).zip(1..CHUNK_SIZE as u32 + 1))
+        .map(|((x, y), z)| uvec3(x, y, z));
 
-        for direction in neighbors {
-            let neighbor = position.wrapping_add_signed(direction.to_vec());
-            let neighbor = chunk[neighbor];
+    let block_faces = meshing_range
+        .map(|position| (position, neighborhood[position]))
+        .filter(|&(_, current)| current.visibility() != Visibility::Empty)
+        .flat_map(|(position, current)| {
+            NEIGHBORS.into_iter().filter_map(move |direction| {
+                let neighbor = position.wrapping_add_signed(direction.to_vec());
+                let neighbor = neighborhood[neighbor];
+                if neighbor.visibility() == Visibility::Opaque {
+                    return None;
+                }
 
-            let should_generate = match (current.visibility(), neighbor.visibility()) {
-                (Visibility::Opaque, Visibility::Empty)
-                | (Visibility::Opaque, Visibility::Transparent)
-                | (Visibility::Transparent, Visibility::Empty) => true,
+                let should_generate = matches!(
+                    current.visibility(),
+                    Visibility::Opaque | Visibility::Transparent
+                );
+                if !should_generate {
+                    return None;
+                }
 
-                (Visibility::Transparent, Visibility::Transparent) => current != neighbor,
-                (_, _) => false,
-            };
+                // May be slow, needs investigation
+                let ao = ao_values(neighborhood, position, direction);
+                Some(Face::new(current, position, ao, direction))
+            })
+        });
 
-            let ao = ao_values(&chunk, position, direction);
-
-            if should_generate {
-                mesh.push_face(Face::new(current, position, ao, direction))
-            }
-        }
+    let mut mesh = RawMesh::default();
+    for block_face in block_faces {
+        mesh.push_face(block_face);
     }
+    mesh
 }
 
 fn ao_value(side1: bool, corner: bool, side2: bool) -> u8 {
     match (side1, corner, side2) {
-        (true, _, true) => 0,
-        (true, true, false) | (false, true, true) => 1,
         (false, false, false) => 3,
+        (true, true, false) | (false, true, true) => 1,
+        (true, _, true) => 0,
         _ => 2,
     }
 }
 
-fn ao_values(chunk: &ChunkNeighbors, position: UVec3, direction: Direction) -> [u8; 4] {
-    let UVec3 { x, y, z } = position;
-
-    let neighbors = match direction {
+fn ao_values(neighborhood: ChunkNeighborhood, position: UVec3, direction: Direction) -> [u8; 4] {
+    let neighbor_offsets = match direction {
         Direction::Left => [
-            chunk[(x - 1, y, z - 1).into()],
-            chunk[(x - 1, y + 1, z - 1).into()],
-            chunk[(x - 1, y + 1, z).into()],
-            chunk[(x - 1, y + 1, z + 1).into()],
-            chunk[(x - 1, y, z + 1).into()],
-            chunk[(x - 1, y - 1, z + 1).into()],
-            chunk[(x - 1, y - 1, z).into()],
-            chunk[(x - 1, y - 1, z - 1).into()],
+            ivec3(-1, 0, -1),
+            ivec3(-1, 1, -1),
+            ivec3(-1, 1, 0),
+            ivec3(-1, 1, 1),
+            ivec3(-1, 0, 1),
+            ivec3(-1, -1, 1),
+            ivec3(-1, -1, 0),
+            ivec3(-1, -1, -1),
         ],
         Direction::Right => [
-            chunk[(x + 1, y, z + 1).into()],
-            chunk[(x + 1, y + 1, z + 1).into()],
-            chunk[(x + 1, y + 1, z).into()],
-            chunk[(x + 1, y + 1, z - 1).into()],
-            chunk[(x + 1, y, z - 1).into()],
-            chunk[(x + 1, y - 1, z - 1).into()],
-            chunk[(x + 1, y - 1, z).into()],
-            chunk[(x + 1, y - 1, z + 1).into()],
+            ivec3(1, 0, 1),
+            ivec3(1, 1, 1),
+            ivec3(1, 1, 0),
+            ivec3(1, 1, -1),
+            ivec3(1, 0, -1),
+            ivec3(1, -1, -1),
+            ivec3(1, -1, 0),
+            ivec3(1, -1, 1),
         ],
         Direction::Bottom => [
-            chunk[(x - 1, y - 1, z).into()],
-            chunk[(x - 1, y - 1, z - 1).into()],
-            chunk[(x, y - 1, z - 1).into()],
-            chunk[(x + 1, y - 1, z - 1).into()],
-            chunk[(x + 1, y - 1, z).into()],
-            chunk[(x + 1, y - 1, z + 1).into()],
-            chunk[(x, y - 1, z + 1).into()],
-            chunk[(x - 1, y - 1, z + 1).into()],
+            ivec3(-1, -1, 0),
+            ivec3(-1, -1, -1),
+            ivec3(0, -1, -1),
+            ivec3(1, -1, -1),
+            ivec3(1, -1, 0),
+            ivec3(1, -1, 1),
+            ivec3(0, -1, 1),
+            ivec3(-1, -1, 1),
         ],
         Direction::Top => [
-            chunk[(x - 1, y + 1, z).into()],
-            chunk[(x - 1, y + 1, z - 1).into()],
-            chunk[(x, y + 1, z - 1).into()],
-            chunk[(x + 1, y + 1, z - 1).into()],
-            chunk[(x + 1, y + 1, z).into()],
-            chunk[(x + 1, y + 1, z + 1).into()],
-            chunk[(x, y + 1, z + 1).into()],
-            chunk[(x - 1, y + 1, z + 1).into()],
+            ivec3(-1, 1, 0),
+            ivec3(-1, 1, -1),
+            ivec3(0, 1, -1),
+            ivec3(1, 1, -1),
+            ivec3(1, 1, 0),
+            ivec3(1, 1, 1),
+            ivec3(0, 1, 1),
+            ivec3(-1, 1, 1),
         ],
         Direction::Back => [
-            chunk[(x + 1, y, z - 1).into()],
-            chunk[(x + 1, y + 1, z - 1).into()],
-            chunk[(x, y + 1, z - 1).into()],
-            chunk[(x - 1, y + 1, z - 1).into()],
-            chunk[(x - 1, y, z - 1).into()],
-            chunk[(x - 1, y - 1, z - 1).into()],
-            chunk[(x, y - 1, z - 1).into()],
-            chunk[(x + 1, y - 1, z - 1).into()],
+            ivec3(1, 0, -1),
+            ivec3(1, 1, -1),
+            ivec3(0, 1, -1),
+            ivec3(-1, 1, -1),
+            ivec3(-1, 0, -1),
+            ivec3(-1, -1, -1),
+            ivec3(0, -1, -1),
+            ivec3(1, -1, -1),
         ],
         Direction::Front => [
-            chunk[(x - 1, y, z + 1).into()],
-            chunk[(x - 1, y + 1, z + 1).into()],
-            chunk[(x, y + 1, z + 1).into()],
-            chunk[(x + 1, y + 1, z + 1).into()],
-            chunk[(x + 1, y, z + 1).into()],
-            chunk[(x + 1, y - 1, z + 1).into()],
-            chunk[(x, y - 1, z + 1).into()],
-            chunk[(x - 1, y - 1, z + 1).into()],
+            ivec3(-1, 0, 1),
+            ivec3(-1, 1, 1),
+            ivec3(0, 1, 1),
+            ivec3(1, 1, 1),
+            ivec3(1, 0, 1),
+            ivec3(1, -1, 1),
+            ivec3(0, -1, 1),
+            ivec3(-1, -1, 1),
         ],
     };
+    let neighbors = neighbor_offsets.map(|offset| {
+        let block = neighborhood[position.wrapping_add_signed(offset)];
+        block.visibility() == Visibility::Opaque
+    });
 
-    let neighbors = neighbors.map(|neighbor| matches!(neighbor.visibility(), Visibility::Opaque));
     [
         ao_value(neighbors[0], neighbors[1], neighbors[2]),
         ao_value(neighbors[2], neighbors[3], neighbors[4]),
