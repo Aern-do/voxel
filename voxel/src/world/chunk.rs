@@ -2,8 +2,6 @@ use std::ops::{Index, IndexMut};
 
 use glam::{uvec3, IVec3, UVec3};
 
-use crate::world::EMPTY_CHUNK;
-
 use super::{Block, World};
 
 pub trait Volume {
@@ -79,10 +77,10 @@ impl Index<UVec3> for ChunkNeighborhood<'_> {
     fn index(&self, position: UVec3) -> &Self::Output {
         const MAX: u32 = Chunk::SIZE + 1;
 
-        let center = &self.world.chunks[&self.center];
+        let center = &self.world.get(self.center);
         let neighbors = OFFSETS
             .map(|offset| self.center + offset)
-            .map(|position| self.world.chunks.get(&position).unwrap_or(&EMPTY_CHUNK));
+            .map(|position| self.world.get(position));
 
         match (position.x, position.y, position.z) {
             (1..=Chunk::SIZE, 1..=Chunk::SIZE, 1..=Chunk::SIZE) => {

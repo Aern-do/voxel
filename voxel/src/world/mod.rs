@@ -24,7 +24,7 @@ use glam::IVec3;
 use crate::{camera::Camera, render::world_pass::ChunkBuffer};
 
 const HORIZONTAL_RENDER_DISTANCE: i32 = 8;
-const VERTICAL_RENDER_DISTANCE: i32 = 2;
+const VERTICAL_RENDER_DISTANCE: i32 = 4;
 
 pub static EMPTY_CHUNK: LazyLock<Chunk> = LazyLock::new(|| Chunk {
     blocks: Default::default(),
@@ -103,10 +103,6 @@ impl World {
 
     pub fn get(&self, position: IVec3) -> &Chunk {
         self.chunks.get(&position).unwrap_or(&EMPTY_CHUNK)
-    }
-
-    pub fn set(&mut self, position: IVec3, chunk: Chunk) {
-        self.chunks.insert(position, chunk);
     }
 
     pub fn generate(&mut self, positions: &[ChunkSectionPosition]) {
