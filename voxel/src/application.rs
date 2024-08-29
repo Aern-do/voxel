@@ -1,6 +1,6 @@
 use std::{
     sync::Arc,
-    time::{Duration, Instant},
+    time::Instant,
 };
 
 use glam::Vec3;
@@ -21,7 +21,6 @@ use crate::{
     world::World,
 };
 
-#[derive(Debug)]
 pub struct Application {
     context: Arc<Context>,
     window: Arc<Window>,
@@ -31,7 +30,6 @@ pub struct Application {
     camera: Camera,
 
     last_frame_time: Instant,
-    last_fps_time: Instant,
 }
 
 impl Application {
@@ -42,7 +40,7 @@ impl Application {
         let context = Arc::new(Context::new(window.clone()).await?);
         let camera = Camera::new(
             CameraView::new(
-                Vec3::new(-2.0, 0.0, -2.0),
+                Vec3::new(-2.0, 90.0, -2.0),
                 -90.0_f32.to_radians(),
                 0.0_f32.to_radians(),
                 window.inner_size(),
@@ -62,7 +60,6 @@ impl Application {
             world,
 
             last_frame_time: Instant::now(),
-            last_fps_time: Instant::now(),
             window,
             context,
         })
@@ -70,8 +67,8 @@ impl Application {
 
     pub fn draw(&mut self) {
         let frustum = Frustum::from_projection(
-            self.camera.view.calculate_transformation_matrix()
-                * self.camera.view.calculate_projection_matrix(),
+            self.camera.view.calculate_projection_matrix()
+                * self.camera.view.calculate_transformation_matrix(),
         );
 
         self.renderer.draw(&frustum, &self.world);
@@ -79,12 +76,10 @@ impl Application {
     }
 
     pub fn update(&mut self) {
-        let dt = self.last_frame_time.elapsed();
-        if self.last_fps_time.elapsed() > Duration::from_millis(500) {
-            println!("FPS: {}", (1.0 / dt.as_secs_f32()).round());
-            self.last_fps_time = Instant::now();
-        }
-        self.camera.update(dt, &self.context);
+        let delta_time = self.last_frame_time.elapsed();
+        
+        self.renderer.update(delta_time);
+        self.camera.update(delta_time, &self.context);
         self.world.update(&self.camera, &self.context);
 
         self.last_frame_time = Instant::now();

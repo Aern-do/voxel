@@ -3,7 +3,7 @@ members = ["voxel", "voxel-util"]
 
 [workspace.dependencies]
 voxel-util = { path = "voxel-util" }
-wgpu = { version = "0.20.1", features = ["naga-ir"] }
+wgpu = "22.1.0"
 smallvec = "1.13.2"
 thiserror = "1.0.63"
 winit = "0.30.3"

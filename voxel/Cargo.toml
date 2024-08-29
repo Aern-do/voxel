@@ -8,7 +8,7 @@ voxel-util = { workspace = true }
 bytemuck = { version = "1.16.1", features = ["derive"] }
 image = { version = "0.25.1", features = ["png"] }
 glam = { version = "0.28.0", features = ["bytemuck"] }
-wgpu = { version = "0.20.1", features = ["naga-ir"] }
+wgpu = { workspace = true }
 pollster = "0.3.0"
 winit = "0.30.3"
 noise = "0.9.0"
@@ -18,3 +18,4 @@ log = "0.4.22"
 env_logger = "0.11.5"
 smallvec = "1.13.2"
 rayon = "1.10.0"
+wgpu_text = "0.9.0"

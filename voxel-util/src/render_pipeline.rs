@@ -196,6 +196,7 @@ impl<'c> RenderPipelineBuilder<'c> {
                 multisample: Default::default(),
                 fragment: Some(fragment_state),
                 multiview: None,
+                cache: None,
             })
     }
 }
