@@ -57,15 +57,7 @@ pub fn create_mesh(neighborhood: ChunkNeighborhood) -> RawMesh {
             NEIGHBORS.into_iter().filter_map(move |direction| {
                 let neighbor = position.wrapping_add_signed(direction.to_vec());
                 let neighbor = neighborhood[neighbor];
-                if neighbor.visibility() == Visibility::Opaque {
-                    return None;
-                }
-
-                let should_generate = matches!(
-                    current.visibility(),
-                    Visibility::Opaque | Visibility::Transparent
-                );
-                if !should_generate {
+                if neighbor.visibility() == Visibility::Opaque || neighbor == current {
                     return None;
                 }
 
