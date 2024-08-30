@@ -60,8 +60,8 @@ impl Camera {
         self.controller.process_mouse(mouse_dx, mouse_dy)
     }
 
-    pub fn process_keyboard(&mut self, key_code: KeyCode, state: ElementState) {
-        self.controller.process_keyboard(key_code, state)
+    pub fn process_key(&mut self, key_code: KeyCode, state: ElementState) {
+        self.controller.process_key(key_code, state)
     }
 
     pub fn calculate_matrix(&self) -> Mat4 {
@@ -141,12 +141,33 @@ impl Projection {
 }
 
 #[derive(Debug, Default, Clone, Copy)]
+struct Direction {
+    pos: bool,
+    neg: bool,
+}
+
+impl Direction {
+    fn value(self) -> f32 {
+        f32::from(self.pos) - f32::from(self.neg)
+    }
+
+    fn set_pos(&mut self, pos: bool) {
+        self.pos = pos;
+    }
+
+    fn set_neg(&mut self, neg: bool) {
+        self.neg = neg;
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy)]
 pub struct CameraController {
     rotate_horizontal: f32,
     rotate_vertical: f32,
 
-    move_forward: f32,
-    move_horizontal: f32,
+    forward: Direction,
+    horizontal: Direction,
+    vertical: Direction,
 }
 
 impl CameraController {
@@ -154,20 +175,19 @@ impl CameraController {
         Self::default()
     }
 
-    pub fn process_keyboard(&mut self, key_code: KeyCode, state: ElementState) {
-        let pressed = f32::from(state.is_pressed());
+    pub fn process_key(&mut self, key_code: KeyCode, state: ElementState) {
+        let pressed = state.is_pressed();
 
         match key_code {
-            KeyCode::KeyW | KeyCode::KeyS => {
-                let forward_key = f32::from(matches!(key_code, KeyCode::KeyW)) * pressed;
-                let backward_key = f32::from(matches!(key_code, KeyCode::KeyS)) * pressed;
-                self.move_forward = forward_key - backward_key;
-            }
-            KeyCode::KeyA | KeyCode::KeyD => {
-                let left_key = f32::from(matches!(key_code, KeyCode::KeyA)) * pressed;
-                let right_key = f32::from(matches!(key_code, KeyCode::KeyD)) * pressed;
-                self.move_horizontal = right_key - left_key;
-            }
+            KeyCode::KeyW => self.forward.set_pos(pressed),
+            KeyCode::KeyS => self.forward.set_neg(pressed),
+
+            KeyCode::KeyD => self.horizontal.set_pos(pressed),
+            KeyCode::KeyA => self.horizontal.set_neg(pressed),
+
+            KeyCode::Space => self.vertical.set_pos(pressed),
+            KeyCode::ShiftLeft => self.vertical.set_neg(pressed),
+
             _ => {}
         }
     }
@@ -180,20 +200,22 @@ impl CameraController {
     pub fn update_camera(&mut self, transformation: &mut Transformation, dt: Duration) {
         const SENSITIVITY: f32 = 45.0;
         const SPEED: f32 = 48.0;
+        const VERTICAL_SPEED: f32 = SPEED;
 
         let dt = dt.as_secs_f32();
 
         let (yaw_sin, yaw_cos) = transformation.yaw.sin_cos();
-        let (pitch_sin, pitch_cos) = transformation.pitch.sin_cos();
+        let pitch_cos = transformation.pitch.cos();
 
-        let forward = Vec3::new(yaw_cos * pitch_cos, pitch_sin, yaw_sin * pitch_cos).normalize();
+        let forward = Vec3::new(yaw_cos * pitch_cos, 0.0, yaw_sin * pitch_cos).normalize();
         let horizontal = Vec3::new(-yaw_sin, 0.0, yaw_cos).normalize();
 
-        transformation.position += forward * self.move_forward * SPEED * dt;
-        transformation.position += horizontal * self.move_horizontal * SPEED * dt;
+        transformation.position += forward * (self.forward.value() * SPEED * dt);
+        transformation.position += horizontal * (self.horizontal.value() * SPEED * dt);
+        transformation.position += Vec3::Y * (self.vertical.value() * VERTICAL_SPEED * dt);
 
-        transformation.yaw += (self.rotate_horizontal.to_radians()) * SENSITIVITY * dt;
-        transformation.pitch += (-self.rotate_vertical.to_radians()) * SENSITIVITY * dt;
+        transformation.yaw += self.rotate_horizontal.to_radians() * SENSITIVITY * dt;
+        transformation.pitch -= self.rotate_vertical.to_radians() * SENSITIVITY * dt;
 
         self.rotate_horizontal = 0.0;
         self.rotate_vertical = 0.0;

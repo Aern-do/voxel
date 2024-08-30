@@ -74,7 +74,7 @@ impl Application {
     }
 
     pub fn keyboard_input(&mut self, key_code: KeyCode, state: ElementState) {
-        self.camera.process_keyboard(key_code, state);
+        self.camera.process_key(key_code, state);
     }
 
     pub fn mouse_motion(&mut self, dx: f64, dy: f64) {
