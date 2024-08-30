@@ -2508,6 +2508,7 @@ dependencies = [
  "itertools 0.13.0",
  "log",
  "noise",
+ "parking_lot",
  "pollster",
  "rayon",
  "smallvec",

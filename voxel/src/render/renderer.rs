@@ -6,9 +6,9 @@ use wgpu::{
     TextureViewDescriptor,
 };
 
-use crate::world::World;
+use crate::world::meshes::Meshes;
 
-use super::{frustum_culling::Frustum, world_pass::WorldPass, DebugPass, Draw};
+use super::{frustum_culling::Frustum, world_pass::WorldPass, DebugPass};
 
 pub struct Renderer {
     context: Arc<Context>,
@@ -44,7 +44,7 @@ impl Renderer {
         self.debug_pass.update(delta_time, &self.context);
     }
 
-    pub fn draw(&mut self, frustum: &Frustum, world: &World) {
+    pub fn draw(&mut self, frustum: &Frustum, meshes: &Meshes) {
         let output = self
             .context
             .surface()
@@ -85,7 +85,7 @@ impl Renderer {
             });
 
             render_pass.set_bind_group(0, self.camera_resource.bind_group(), &[]);
-            self.world_pass.draw(&mut render_pass, frustum, world);
+            self.world_pass.draw(&mut render_pass, frustum, meshes);
         }
 
         {
@@ -101,7 +101,7 @@ impl Renderer {
                 })],
                 ..Default::default()
             });
-            self.debug_pass.draw(&mut text_render_pass, frustum, world);
+            self.debug_pass.draw(&mut text_render_pass);
         }
 
         self.context.queue().submit(iter::once(encoder.finish()));

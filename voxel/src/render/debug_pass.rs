@@ -3,13 +3,14 @@ use std::time::{Duration, Instant};
 use voxel_util::Context;
 use wgpu::RenderPass;
 use wgpu_text::{
-    glyph_brush::{ab_glyph::{FontRef, PxScale}, OwnedSection, OwnedText},
+    glyph_brush::{
+        ab_glyph::{FontRef, PxScale},
+        OwnedSection, OwnedText,
+    },
     BrushBuilder, TextBrush,
 };
 
-use crate::{asset, world::World};
-
-use super::{frustum_culling::Frustum, Draw};
+use crate::asset;
 
 pub trait OwnedSectionExt {
     fn set_text<T: Into<String>>(&mut self, text: T) -> &mut OwnedText;
@@ -56,7 +57,7 @@ impl DebugPass {
     pub fn update_fps(&mut self, delta_time: Duration) {
         if self.last_fps_update.elapsed() > Duration::from_millis(250) {
             let fps = 1.0 / delta_time.as_secs_f32();
-            
+
             let text = self.fps_section.set_text(format!("FPS: {}", fps.round()));
             text.scale = PxScale::from(24.0);
 
@@ -73,8 +74,8 @@ impl DebugPass {
     }
 }
 
-impl Draw for DebugPass {
-    fn draw<'r>(&'r self, render_pass: &mut RenderPass<'r>, _frustum: &Frustum, _world: &'r World) {
+impl DebugPass {
+    pub fn draw<'r>(&'r self, render_pass: &mut RenderPass<'r>) {
         self.brush.draw(render_pass);
     }
 }

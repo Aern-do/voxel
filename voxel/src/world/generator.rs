@@ -11,7 +11,7 @@ pub trait Generate {
     fn generate_section(&self, position: ChunkSectionPosition) -> ChunkSection;
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Default)]
 pub struct DefaultGenerator {
     perlin: Perlin,
 }

@@ -11,13 +11,12 @@ use wgpu::{
 
 use crate::{
     asset,
-    world::{chunk::Volume, Chunk, RawMesh, World},
+    world::{chunk::Volume, meshes::Meshes, Chunk, RawMesh},
 };
 
 use super::{
     frustum_culling::{Frustum, AABB},
     vertex::Vertex,
-    Draw,
 };
 
 type Transformation = (voxel_util::Vertex, Uniform<IVec3>);
@@ -126,12 +125,17 @@ impl WorldPass {
     }
 }
 
-impl Draw for WorldPass {
-    fn draw<'r>(&'r self, render_pass: &mut RenderPass<'r>, frustum: &Frustum, world: &'r World) {
+impl WorldPass {
+    pub fn draw<'r>(
+        &'r self,
+        render_pass: &mut RenderPass<'r>,
+        frustum: &Frustum,
+        meshes: &Meshes,
+    ) {
         render_pass.set_pipeline(&self.render_pipeline);
         render_pass.set_bind_group(1, self.spritesheet_resource.bind_group(), &[]);
 
-        for chunk_buffer in world.meshes.values() {
+        for chunk_buffer in meshes.values() {
             if chunk_buffer.aabb.is_on_frustum(frustum) {
                 render_pass.set_bind_group(
                     2,

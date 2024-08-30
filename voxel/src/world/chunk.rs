@@ -2,7 +2,9 @@ use std::ops::{Index, IndexMut};
 
 use glam::{uvec3, IVec3, UVec3};
 
-use super::{Block, World};
+use crate::world::EMPTY_CHUNK;
+
+use super::{Block, ChunksInner};
 
 pub trait Volume {
     const SIZE: u32;
@@ -29,24 +31,42 @@ pub const CHUNK_SIZE: usize = 16;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Chunk {
-    pub blocks: Box<[[[Block; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE]>,
+    blocks: Option<Box<[[[Block; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE]>>,
 }
 
 impl Volume for Chunk {
     const SIZE: u32 = CHUNK_SIZE as u32;
 }
 
+impl Chunk {
+    fn is_empty(&self) -> bool {
+        !self.blocks.as_ref().is_some_and(|blocks| {
+            blocks
+                .iter()
+                .copied()
+                .flatten()
+                .flatten()
+                .any(|block| block != Block::Air)
+        })
+    }
+}
+
 impl Index<UVec3> for Chunk {
     type Output = Block;
 
     fn index(&self, position: UVec3) -> &Self::Output {
-        &self.blocks[position.x as usize][position.z as usize][position.y as usize]
+        if let Some(blocks) = &self.blocks {
+            &blocks[position.x as usize][position.z as usize][position.y as usize]
+        } else {
+            &Block::Air
+        }
     }
 }
 
 impl IndexMut<UVec3> for Chunk {
     fn index_mut(&mut self, position: UVec3) -> &mut Self::Output {
-        &mut self.blocks[position.x as usize][position.z as usize][position.y as usize]
+        &mut self.blocks.get_or_insert_with(Default::default)[position.x as usize]
+            [position.z as usize][position.y as usize]
     }
 }
 
@@ -59,53 +79,52 @@ const OFFSETS: [IVec3; 6] = [
     IVec3::NEG_Z,
 ];
 
-#[derive(Clone, Copy)]
-pub struct ChunkNeighborhood<'w> {
-    world: &'w World,
+pub struct ChunkNeighborhood<'s> {
+    chunks: &'s ChunksInner,
     center: IVec3,
 }
 
-impl<'w> ChunkNeighborhood<'w> {
-    pub fn new(world: &'w World, center: IVec3) -> Self {
-        Self { world, center }
+impl<'s> ChunkNeighborhood<'s> {
+    pub fn new(chunks: &'s ChunksInner, center: IVec3) -> Self {
+        Self { chunks, center }
     }
-}
 
-impl Index<UVec3> for ChunkNeighborhood<'_> {
-    type Output = Block;
-
-    fn index(&self, position: UVec3) -> &Self::Output {
+    pub fn get(&self, position: UVec3) -> Block {
         const MAX: u32 = Chunk::SIZE + 1;
 
-        let center = &self.world.get(self.center);
+        let center = self.chunks.get(&self.center).unwrap();
         let neighbors = OFFSETS
             .map(|offset| self.center + offset)
-            .map(|position| self.world.get(position));
+            .map(|position| self.chunks.get(&position).unwrap_or(&EMPTY_CHUNK));
 
         match (position.x, position.y, position.z) {
             (1..=Chunk::SIZE, 1..=Chunk::SIZE, 1..=Chunk::SIZE) => {
-                &center[(position.x - 1, position.y - 1, position.z - 1).into()]
+                center[(position.x - 1, position.y - 1, position.z - 1).into()]
             }
             (MAX, 1..=Chunk::SIZE, 1..=Chunk::SIZE) => {
-                &neighbors[0][(0, position.y - 1, position.z - 1).into()]
+                neighbors[0][(0, position.y - 1, position.z - 1).into()]
             }
             (0, 1..=Chunk::SIZE, 1..=Chunk::SIZE) => {
-                &neighbors[1][(Chunk::SIZE - 1, position.y - 1, position.z - 1).into()]
+                neighbors[1][(Chunk::SIZE - 1, position.y - 1, position.z - 1).into()]
             }
             (1..=Chunk::SIZE, MAX, 1..=Chunk::SIZE) => {
-                &neighbors[2][(position.x - 1, 0, position.z - 1).into()]
+                neighbors[2][(position.x - 1, 0, position.z - 1).into()]
             }
             (1..=Chunk::SIZE, 0, 1..=Chunk::SIZE) => {
-                &neighbors[3][(position.x - 1, Chunk::SIZE - 1, position.z - 1).into()]
+                neighbors[3][(position.x - 1, Chunk::SIZE - 1, position.z - 1).into()]
             }
             (1..=Chunk::SIZE, 1..=Chunk::SIZE, MAX) => {
-                &neighbors[4][(position.x - 1, position.y - 1, 0).into()]
+                neighbors[4][(position.x - 1, position.y - 1, 0).into()]
             }
             (1..=Chunk::SIZE, 1..=Chunk::SIZE, 0) => {
-                &neighbors[5][(position.x - 1, position.y - 1, Chunk::SIZE - 1).into()]
+                neighbors[5][(position.x - 1, position.y - 1, Chunk::SIZE - 1).into()]
             }
-            (_, _, _) => &Block::Air,
+            (_, _, _) => Block::Air,
         }
+    }
+
+    pub fn center(&self) -> IVec3 {
+        self.center
     }
 }
 
@@ -142,7 +161,16 @@ impl ChunkSectionPosition {
 
 #[derive(Debug, Default, Clone)]
 pub struct ChunkSection {
-    pub chunks: [Chunk; SECTION_SIZE],
+    chunks: [Chunk; SECTION_SIZE],
+}
+
+impl ChunkSection {
+    pub fn into_chunks(self) -> impl Iterator<Item = (usize, Chunk)> {
+        self.chunks
+            .into_iter()
+            .enumerate()
+            .filter(|(_, chunk)| !chunk.is_empty())
+    }
 }
 
 impl Index<UVec3> for ChunkSection {

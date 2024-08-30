@@ -1,8 +1,12 @@
-use std::iter;
+use std::{collections::HashMap, iter, sync::mpsc::Receiver};
 
-use glam::{ivec3, uvec3, UVec3};
+use glam::{ivec3, uvec3, IVec3, UVec3};
+use voxel_util::Context;
 
-use crate::{render::Vertex, world::chunk::CHUNK_SIZE};
+use crate::{
+    render::{world_pass::ChunkBuffer, Vertex},
+    world::chunk::CHUNK_SIZE,
+};
 
 use super::{chunk::ChunkNeighborhood, face::Face, Direction, Visibility};
 
@@ -18,19 +22,55 @@ impl RawMesh {
         Self::default()
     }
 
-    pub fn verticies(&self) -> &[Vertex] {
-        &self.verticies
-    }
-
     pub fn push_face(&mut self, block_face: Face) {
         self.verticies.extend(block_face.vertices());
         self.indices.extend(Face::indices(self.offset));
         self.offset += 1;
     }
 
+    pub fn verticies(&self) -> &[Vertex] {
+        &self.verticies
+    }
+
     pub fn indices(&self) -> &[u16] {
         &self.indices
     }
+}
+
+pub struct Meshes {
+    meshes: HashMap<IVec3, ChunkBuffer>,
+    receiver: Receiver<(IVec3, ChunkBuffer)>,
+}
+
+impl Meshes {
+    pub fn new(receiver: Receiver<(IVec3, ChunkBuffer)>) -> Self {
+        Self {
+            meshes: Default::default(),
+            receiver,
+        }
+    }
+
+    pub fn values(&self) -> impl Iterator<Item = &'_ ChunkBuffer> {
+        self.meshes.values()
+    }
+
+    pub fn is_generated(&self, position: IVec3) -> bool {
+        self.meshes.contains_key(&position)
+    }
+
+    pub fn receive(&mut self) {
+        while let Ok((position, mesh)) = self.receiver.try_recv() {
+            self.meshes.insert(position, mesh);
+        }
+    }
+}
+
+pub fn create_mesh(neighborhood: &ChunkNeighborhood, context: &Context) -> ChunkBuffer {
+    ChunkBuffer::from_mesh(
+        &create_raw_mesh(neighborhood),
+        neighborhood.center(),
+        context,
+    )
 }
 
 // Making this `static` does not give any effect
@@ -43,7 +83,7 @@ const NEIGHBORS: [Direction; 6] = [
     Direction::Back,
 ];
 
-pub fn create_mesh(neighborhood: ChunkNeighborhood) -> RawMesh {
+fn create_raw_mesh(neighborhood: &ChunkNeighborhood) -> RawMesh {
     // Making this `static` does not give any effect
     let meshing_range = (1..CHUNK_SIZE as u32 + 1)
         .flat_map(move |i| iter::repeat(i).zip(1..CHUNK_SIZE as u32 + 1))
@@ -51,12 +91,12 @@ pub fn create_mesh(neighborhood: ChunkNeighborhood) -> RawMesh {
         .map(|((x, y), z)| uvec3(x, y, z));
 
     let block_faces = meshing_range
-        .map(|position| (position, neighborhood[position]))
+        .map(|position| (position, neighborhood.get(position)))
         .filter(|&(_, current)| current.visibility() != Visibility::Empty)
         .flat_map(|(position, current)| {
             NEIGHBORS.into_iter().filter_map(move |direction| {
                 let neighbor = position.wrapping_add_signed(direction.to_vec());
-                let neighbor = neighborhood[neighbor];
+                let neighbor = neighborhood.get(neighbor);
                 if neighbor.visibility() == Visibility::Opaque || neighbor == current {
                     return None;
                 }
@@ -74,16 +114,7 @@ pub fn create_mesh(neighborhood: ChunkNeighborhood) -> RawMesh {
     mesh
 }
 
-fn ao_value(side1: bool, corner: bool, side2: bool) -> u8 {
-    match (side1, corner, side2) {
-        (false, false, false) => 3,
-        (true, true, false) | (false, true, true) => 1,
-        (true, _, true) => 0,
-        _ => 2,
-    }
-}
-
-fn ao_values(neighborhood: ChunkNeighborhood, position: UVec3, direction: Direction) -> [u8; 4] {
+fn ao_values(neighborhood: &ChunkNeighborhood, position: UVec3, direction: Direction) -> [u8; 4] {
     let neighbor_offsets = match direction {
         Direction::Left => [
             ivec3(-1, 0, -1),
@@ -147,7 +178,7 @@ fn ao_values(neighborhood: ChunkNeighborhood, position: UVec3, direction: Direct
         ],
     };
     let neighbors = neighbor_offsets.map(|offset| {
-        let block = neighborhood[position.wrapping_add_signed(offset)];
+        let block = neighborhood.get(position.wrapping_add_signed(offset));
         block.visibility() == Visibility::Opaque
     });
 
@@ -157,4 +188,13 @@ fn ao_values(neighborhood: ChunkNeighborhood, position: UVec3, direction: Direct
         ao_value(neighbors[4], neighbors[5], neighbors[6]),
         ao_value(neighbors[6], neighbors[7], neighbors[0]),
     ]
+}
+
+fn ao_value(side1: bool, corner: bool, side2: bool) -> u8 {
+    match (side1, corner, side2) {
+        (false, false, false) => 3,
+        (true, true, false) | (false, true, true) => 1,
+        (true, _, true) => 0,
+        _ => 2,
+    }
 }

@@ -1,6 +1,13 @@
-use std::{sync::Arc, time::Instant};
+use std::{
+    sync::{
+        mpsc::{channel, Sender},
+        Arc,
+    },
+    thread,
+    time::Instant,
+};
 
-use glam::Vec3;
+use glam::{IVec3, Vec3};
 use voxel_util::{AsBindGroup, Context};
 use winit::{
     application::ApplicationHandler,
@@ -15,7 +22,11 @@ use crate::{
     camera::{Camera, Projection, Transformation},
     error::Error,
     render::{frustum_culling::Frustum, Renderer},
-    world::World,
+    world::{
+        chunk::ChunkNeighborhood,
+        meshes::{create_mesh, Meshes},
+        World,
+    },
 };
 
 pub struct Application {
@@ -25,6 +36,9 @@ pub struct Application {
     renderer: Renderer,
     world: World,
     camera: Camera,
+
+    position_sender: Sender<IVec3>,
+    meshes: Meshes,
 
     last_frame_time: Instant,
 }
@@ -42,23 +56,53 @@ impl Application {
         );
 
         let renderer = Renderer::new(camera.as_shader_resource(&context), Arc::clone(&context));
-        let world = World::new();
+        let world = World::default();
+
+        let (position_sender, position_receiver) = channel();
+        let (mesh_sender, mesh_receiver) = channel();
+        let meshes = Meshes::new(mesh_receiver);
+        {
+            let chunks = world.chunks.clone();
+            let context = Arc::clone(&context);
+
+            thread::spawn(move || {
+                while let Ok(position) = position_receiver.recv() {
+                    let chunks = chunks.clone();
+                    let context = Arc::clone(&context);
+                    let mesh_sender = mesh_sender.clone();
+
+                    rayon::spawn_fifo(move || {
+                        let mesh = {
+                            let chunks = chunks.read();
+                            let neighborhood = ChunkNeighborhood::new(&chunks, position);
+                            create_mesh(&neighborhood, &context)
+                        };
+                        mesh_sender.send((position, mesh)).unwrap();
+                    });
+                }
+            });
+        }
 
         Ok(Self {
+            context,
+            window,
+
             renderer,
-            camera,
             world,
+            camera,
+
+            position_sender,
+            meshes,
 
             last_frame_time: Instant::now(),
-            window,
-            context,
         })
     }
 
     pub fn draw(&mut self) {
         let frustum = Frustum::from_projection(self.camera.calculate_matrix());
 
-        self.renderer.draw(&frustum, &self.world);
+        self.meshes.receive();
+        self.renderer.draw(&frustum, &self.meshes);
         self.update()
     }
 
@@ -67,7 +111,7 @@ impl Application {
 
         self.renderer.update(delta_time);
         self.camera.update(delta_time, &self.context);
-        self.world.update(&self.camera, &self.context);
+        self.world.update(&self.camera, &self.position_sender);
 
         self.last_frame_time = Instant::now();
         self.window.request_redraw();

@@ -2,75 +2,82 @@ pub mod block;
 pub mod chunk;
 pub mod face;
 pub mod generator;
-pub mod mesher;
+pub mod meshes;
 
 pub use block::{Block, Visibility};
 pub use chunk::Chunk;
-use chunk::SECTION_SIZE;
-use chunk::{ChunkNeighborhood, ChunkSectionPosition, Volume};
+use chunk::{ChunkSectionPosition, Volume};
 pub use face::{Direction, Face};
 use generator::{DefaultGenerator, Generate};
-pub use mesher::{create_mesh, RawMesh};
-use rayon::iter::ParallelBridge;
-use rayon::iter::ParallelIterator;
-use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator};
+pub use meshes::RawMesh;
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::iter;
-use voxel_util::Context;
+use std::sync::mpsc::Sender;
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashSet};
 use std::sync::LazyLock;
 
 use glam::IVec3;
 
-use crate::{camera::Camera, render::world_pass::ChunkBuffer};
+use crate::camera::Camera;
 
-const HORIZONTAL_RENDER_DISTANCE: i32 = 8;
-const VERTICAL_RENDER_DISTANCE: i32 = 4;
+const HORIZONTAL_RENDER_DISTANCE: i32 = 10;
+const VERTICAL_RENDER_DISTANCE: i32 = 8;
+const GENERATION_DISTANCE: i32 = HORIZONTAL_RENDER_DISTANCE + 1;
 
-pub static EMPTY_CHUNK: LazyLock<Chunk> = LazyLock::new(|| Chunk {
-    blocks: Default::default(),
-});
+pub static EMPTY_CHUNK: LazyLock<Chunk> = LazyLock::new(|| Chunk::default());
 
-#[derive(Debug, Default)]
-pub struct World {
-    chunks: HashMap<IVec3, Chunk>,
-    generated_sections: HashSet<ChunkSectionPosition>,
-    generator: DefaultGenerator,
-    pub meshes: HashMap<IVec3, ChunkBuffer>,
-}
+mod chunks {
+    use std::{collections::HashMap, ops::Deref, sync::Arc};
 
-static GENERATING_SECTIONS: LazyLock<Box<[ChunkSectionPosition]>> = LazyLock::new(|| {
-    (-HORIZONTAL_RENDER_DISTANCE..HORIZONTAL_RENDER_DISTANCE + 1)
-        .flat_map(|x| {
-            iter::repeat(x).zip(-HORIZONTAL_RENDER_DISTANCE..HORIZONTAL_RENDER_DISTANCE + 1)
-        })
-        .map(|(x, z)| ChunkSectionPosition::new(x, z))
-        .collect()
-});
+    use glam::IVec3;
+    use parking_lot::{RwLock, RwLockReadGuard};
 
-static RENDERING_CHUNKS_OFFSETS: LazyLock<Box<[IVec3]>> = LazyLock::new(|| {
-    GENERATING_SECTIONS
-        .iter()
-        .copied()
-        .flat_map(|position| {
-            iter::repeat(position).zip(-VERTICAL_RENDER_DISTANCE..VERTICAL_RENDER_DISTANCE + 1)
-        })
-        .map(|(position, y)| position.with_y(y))
-        .collect()
-});
+    use super::Chunk;
 
-impl World {
-    pub fn new() -> Self {
-        Self::default()
+    pub type ChunksInner = HashMap<IVec3, Chunk>;
+
+    #[derive(Debug, Default, Clone)]
+    pub struct Chunks(Arc<RwLock<ChunksInner>>);
+
+    impl Chunks {
+        pub fn read(&self) -> ChunksReadGuard<'_> {
+            ChunksReadGuard(self.0.read())
+        }
+
+        pub fn extend(&self, iter: impl IntoIterator<Item = (IVec3, Chunk)>) {
+            self.0.write().extend(iter);
+        }
     }
 
-    pub fn update(&mut self, camera: &Camera, context: &Context) {
+    pub struct ChunksReadGuard<'s>(RwLockReadGuard<'s, ChunksInner>);
+
+    impl Deref for ChunksReadGuard<'_> {
+        type Target = HashMap<IVec3, Chunk>;
+
+        fn deref(&self) -> &Self::Target {
+            &self.0
+        }
+    }
+}
+pub use chunks::*;
+
+#[derive(Default)]
+pub struct World {
+    pub chunks: Chunks,
+    generated_sections: HashSet<ChunkSectionPosition>,
+    generator: DefaultGenerator,
+    generated_meshes: HashSet<IVec3>,
+}
+
+impl World {
+    pub fn update(&mut self, camera: &Camera, position_sender: &Sender<IVec3>) {
         let origin = camera.transformation().position().as_ivec3() / Chunk::SIZE as i32;
 
-        let generated_positions = {
-            GENERATING_SECTIONS
-                .iter()
-                .copied()
+        let generated_section_positions = {
+            (-GENERATION_DISTANCE..=GENERATION_DISTANCE)
+                .flat_map(|x| iter::repeat(x).zip(-GENERATION_DISTANCE..=GENERATION_DISTANCE))
+                .map(|(x, z)| ChunkSectionPosition::new(x, z))
                 .filter_map(|position| {
                     let position =
                         ChunkSectionPosition::new(position.x + origin.x, position.z + origin.z);
@@ -78,83 +85,55 @@ impl World {
                 })
                 .collect::<BTreeSet<_>>()
         };
-        if !generated_positions.is_empty() {
-            self.generate_sections(&generated_positions);
+        self.generate_sections(&generated_section_positions);
 
-            let sections_positions = generated_positions
-                .par_iter()
-                .copied()
-                .flat_map_iter(|position| position.adjacent())
-                .filter(|position| self.generated_sections.contains(position))
-                .filter(|position| !generated_positions.contains(&position))
-                .collect::<BTreeSet<_>>();
-            self.update_sections_meshes(sections_positions, context);
-        }
+        let visible_sections_positions = (-HORIZONTAL_RENDER_DISTANCE..=HORIZONTAL_RENDER_DISTANCE)
+            .flat_map(|x| {
+                iter::repeat(x).zip(-HORIZONTAL_RENDER_DISTANCE..=HORIZONTAL_RENDER_DISTANCE)
+            })
+            .map(|(x, z)| ChunkSectionPosition::new(x, z));
 
         {
-            let positions = RENDERING_CHUNKS_OFFSETS
-                .iter()
-                .copied()
-                .map(|position| position + origin)
-                .filter(|position| !self.meshes.contains_key(position));
-            let meshes = positions
-                .par_bridge()
-                .map(|position| (position, self.make_mesh(position, context)))
-                .collect::<Vec<_>>();
-            self.meshes.extend(meshes);
-        }
-    }
+            let mut ungenerated_visible_meshes = {
+                let chunks = self.chunks.read();
+                visible_sections_positions
+                    .flat_map(|position| {
+                        iter::repeat(position)
+                            .zip(-VERTICAL_RENDER_DISTANCE..=VERTICAL_RENDER_DISTANCE)
+                    })
+                    .map(|(position, y)| position.with_y(y))
+                    .map(move |position| position + origin)
+                    .filter(|position| !self.generated_meshes.contains(position))
+                    .filter(|position| chunks.get(position).is_some())
+                    .collect::<Vec<_>>()
+            };
+            ungenerated_visible_meshes
+                .sort_unstable_by_key(|&position| (position - origin).length_squared());
 
-    pub fn get(&self, position: IVec3) -> &Chunk {
-        self.chunks.get(&position).unwrap_or(&EMPTY_CHUNK)
+            self.generated_meshes.extend(&ungenerated_visible_meshes);
+            for position in ungenerated_visible_meshes {
+                position_sender.send(position).unwrap();
+            }
+        }
     }
 
     pub fn generate_sections(&mut self, positions: &BTreeSet<ChunkSectionPosition>) {
+        if positions.is_empty() {
+            return;
+        }
+
         let chunks = positions
             .par_iter()
             .copied()
             .flat_map_iter(|position| {
                 let section = self.generator.generate_section(position);
                 section
-                    .chunks
-                    .into_iter()
-                    .enumerate()
+                    .into_chunks()
                     .map(move |(y, chunk)| (position.with_y(y as i32), chunk))
             })
-            .collect::<Vec<(IVec3, Chunk)>>();
+            .collect::<Vec<_>>();
 
         self.chunks.extend(chunks);
         self.generated_sections.extend(positions);
-    }
-
-    pub fn update_meshes(
-        &mut self,
-        chunk_positions: impl ParallelIterator<Item = IVec3>,
-        context: &Context,
-    ) {
-        let meshes = chunk_positions
-            .map(|position| (position, self.make_mesh(position, context)))
-            .collect::<Vec<_>>();
-        self.meshes.extend(meshes);
-    }
-
-    pub fn update_sections_meshes(
-        &mut self,
-        section_positions: impl IntoParallelIterator<Item = ChunkSectionPosition>,
-        context: &Context,
-    ) {
-        let chunk_positions = section_positions
-            .into_par_iter()
-            .flat_map_iter(|section_position| {
-                (0..SECTION_SIZE as i32).map(move |y| section_position.with_y(y))
-            });
-        self.update_meshes(chunk_positions, context);
-    }
-
-    pub fn make_mesh(&self, position: IVec3, context: &Context) -> ChunkBuffer {
-        let neighborhood = ChunkNeighborhood::new(self, position);
-        let mesh = create_mesh(neighborhood);
-        let mesh = ChunkBuffer::from_mesh(&mesh, position, context);
-        mesh
     }
 }
