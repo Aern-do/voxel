@@ -37,13 +37,18 @@ impl RawMesh {
     }
 }
 
+pub enum MeshesMessage {
+    Ungenerate { position: IVec3 },
+    Insert { position: IVec3, mesh: ChunkBuffer },
+}
+
 pub struct Meshes {
     meshes: HashMap<IVec3, ChunkBuffer>,
-    receiver: Receiver<(IVec3, ChunkBuffer)>,
+    receiver: Receiver<MeshesMessage>,
 }
 
 impl Meshes {
-    pub fn new(receiver: Receiver<(IVec3, ChunkBuffer)>) -> Self {
+    pub fn new(receiver: Receiver<MeshesMessage>) -> Self {
         Self {
             meshes: Default::default(),
             receiver,
@@ -59,8 +64,16 @@ impl Meshes {
     }
 
     pub fn receive(&mut self) {
-        while let Ok((position, mesh)) = self.receiver.try_recv() {
-            self.meshes.insert(position, mesh);
+        while let Ok(message) = self.receiver.try_recv() {
+            match message {
+                MeshesMessage::Insert { position, mesh } => {
+                    self.meshes.insert(position, mesh);
+                }
+
+                MeshesMessage::Ungenerate { position } => {
+                    self.meshes.remove(&position);
+                }
+            }
         }
     }
 }

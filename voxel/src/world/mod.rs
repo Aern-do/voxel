@@ -9,6 +9,7 @@ pub use chunk::Chunk;
 use chunk::{ChunkSectionPosition, Volume};
 pub use face::{Direction, Face};
 use generator::{DefaultGenerator, Generate};
+use meshes::MeshesMessage;
 pub use meshes::RawMesh;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::iter;
@@ -21,8 +22,8 @@ use glam::IVec3;
 
 use crate::camera::Camera;
 
-const HORIZONTAL_RENDER_DISTANCE: i32 = 10;
-const VERTICAL_RENDER_DISTANCE: i32 = 8;
+const HORIZONTAL_RENDER_DISTANCE: i32 = 12;
+const VERTICAL_RENDER_DISTANCE: i32 = 12;
 const GENERATION_DISTANCE: i32 = HORIZONTAL_RENDER_DISTANCE + 1;
 
 pub static EMPTY_CHUNK: LazyLock<Chunk> = LazyLock::new(|| Chunk::default());
@@ -71,7 +72,13 @@ pub struct World {
 }
 
 impl World {
-    pub fn update(&mut self, camera: &Camera, position_sender: &Sender<IVec3>) {
+    pub fn update(
+        &mut self,
+        camera: &Camera,
+        // TODO group into `UpdateSender`
+        position_sender: &Sender<IVec3>,
+        meshes_sender: &Sender<MeshesMessage>,
+    ) {
         let origin = camera.transformation().position().as_ivec3() / Chunk::SIZE as i32;
 
         let generated_section_positions = {
@@ -94,7 +101,7 @@ impl World {
             .map(|(x, z)| ChunkSectionPosition::new(x, z));
 
         {
-            let mut ungenerated_visible_meshes = {
+            let visible_chunks = {
                 let chunks = self.chunks.read();
                 visible_sections_positions
                     .flat_map(|position| {
@@ -103,16 +110,36 @@ impl World {
                     })
                     .map(|(position, y)| position.with_y(y))
                     .map(move |position| position + origin)
-                    .filter(|position| !self.generated_meshes.contains(position))
                     .filter(|position| chunks.get(position).is_some())
                     .collect::<Vec<_>>()
             };
-            ungenerated_visible_meshes
+
+            let mut non_generated_visible_chunks = visible_chunks
+                .iter()
+                .copied()
+                .filter(|position| !self.generated_meshes.contains(position))
+                .collect::<Vec<_>>();
+            non_generated_visible_chunks
                 .sort_unstable_by_key(|&position| (position - origin).length_squared());
 
-            self.generated_meshes.extend(&ungenerated_visible_meshes);
-            for position in ungenerated_visible_meshes {
+            self.generated_meshes.extend(&non_generated_visible_chunks);
+            for position in non_generated_visible_chunks {
                 position_sender.send(position).unwrap();
+            }
+
+            let mut ungenerated_meshes = Vec::default();
+            self.generated_meshes.retain(|&position| {
+                if visible_chunks.contains(&position) {
+                    true
+                } else {
+                    ungenerated_meshes.push(position);
+                    false
+                }
+            });
+            for position in ungenerated_meshes {
+                meshes_sender
+                    .send(MeshesMessage::Ungenerate { position })
+                    .unwrap();
             }
         }
     }

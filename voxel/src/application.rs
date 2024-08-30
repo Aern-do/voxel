@@ -24,7 +24,7 @@ use crate::{
     render::{frustum_culling::Frustum, Renderer},
     world::{
         chunk::ChunkNeighborhood,
-        meshes::{create_mesh, Meshes},
+        meshes::{create_mesh, Meshes, MeshesMessage},
         World,
     },
 };
@@ -38,6 +38,7 @@ pub struct Application {
     camera: Camera,
 
     position_sender: Sender<IVec3>,
+    meshes_sender: Sender<MeshesMessage>,
     meshes: Meshes,
 
     last_frame_time: Instant,
@@ -59,17 +60,18 @@ impl Application {
         let world = World::default();
 
         let (position_sender, position_receiver) = channel();
-        let (mesh_sender, mesh_receiver) = channel();
+        let (meshes_sender, mesh_receiver) = channel();
         let meshes = Meshes::new(mesh_receiver);
         {
             let chunks = world.chunks.clone();
             let context = Arc::clone(&context);
+            let meshes_sender = meshes_sender.clone();
 
             thread::spawn(move || {
                 while let Ok(position) = position_receiver.recv() {
                     let chunks = chunks.clone();
                     let context = Arc::clone(&context);
-                    let mesh_sender = mesh_sender.clone();
+                    let meshes_sender = meshes_sender.clone();
 
                     rayon::spawn_fifo(move || {
                         let mesh = {
@@ -77,7 +79,9 @@ impl Application {
                             let neighborhood = ChunkNeighborhood::new(&chunks, position);
                             create_mesh(&neighborhood, &context)
                         };
-                        mesh_sender.send((position, mesh)).unwrap();
+                        meshes_sender
+                            .send(MeshesMessage::Insert { position, mesh })
+                            .unwrap();
                     });
                 }
             });
@@ -92,6 +96,7 @@ impl Application {
             camera,
 
             position_sender,
+            meshes_sender,
             meshes,
 
             last_frame_time: Instant::now(),
@@ -111,7 +116,8 @@ impl Application {
 
         self.renderer.update(delta_time);
         self.camera.update(delta_time, &self.context);
-        self.world.update(&self.camera, &self.position_sender);
+        self.world
+            .update(&self.camera, &self.position_sender, &self.meshes_sender);
 
         self.last_frame_time = Instant::now();
         self.window.request_redraw();
