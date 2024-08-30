@@ -36,11 +36,7 @@ impl Application {
 
         let context = Arc::new(Context::new(Arc::clone(&window)).await?);
         let camera = Camera::new(
-            Transformation::new(
-                Vec3::new(-2.0, 90.0, -2.0),
-                -90.0_f32.to_radians(),
-                45.0_f32.to_radians(),
-            ),
+            Transformation::new(Vec3::new(-2.0, 90.0, -2.0), -90.0_f32.to_radians(), 0.0),
             Projection::new(window.inner_size(), 45.0_f32.to_radians(), 0.1, 1000.0),
             &context,
         );

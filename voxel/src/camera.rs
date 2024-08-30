@@ -40,8 +40,8 @@ pub struct Camera {
 impl Camera {
     pub fn new(transformation: Transformation, projection: Projection, graphics: &Context) -> Self {
         Self {
-            uniform: Uniform::new(CameraUniform::new(), graphics),
             controller: CameraController::default(),
+            uniform: Uniform::new(CameraUniform::new(), graphics),
 
             projection,
             transformation,
