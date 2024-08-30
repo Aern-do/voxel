@@ -9,17 +9,16 @@ pub use chunk::Chunk;
 use chunk::{ChunkSectionPosition, Volume};
 pub use face::{Direction, Face};
 use generator::{DefaultGenerator, Generate};
-use meshes::MeshesMessage;
 pub use meshes::RawMesh;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::iter;
-use std::sync::mpsc::Sender;
 
 use std::collections::{BTreeSet, HashSet};
 use std::sync::LazyLock;
 
 use glam::IVec3;
 
+use crate::application::MeshUpdater;
 use crate::camera::Camera;
 
 const HORIZONTAL_RENDER_DISTANCE: i32 = 12;
@@ -72,13 +71,7 @@ pub struct World {
 }
 
 impl World {
-    pub fn update(
-        &mut self,
-        camera: &Camera,
-        // TODO group into `UpdateSender`
-        position_sender: &Sender<IVec3>,
-        meshes_sender: &Sender<MeshesMessage>,
-    ) {
+    pub fn update(&mut self, camera: &Camera, mesh_updater: &MeshUpdater) {
         let origin = camera.transformation().position().as_ivec3() / Chunk::SIZE as i32;
 
         let generated_section_positions = {
@@ -114,17 +107,13 @@ impl World {
                     .collect::<Vec<_>>()
             };
 
-            let mut non_generated_visible_chunks = visible_chunks
-                .iter()
-                .copied()
-                .filter(|position| !self.generated_meshes.contains(position))
-                .collect::<Vec<_>>();
-            non_generated_visible_chunks
-                .sort_unstable_by_key(|&position| (position - origin).length_squared());
+            for position in visible_chunks.iter().copied() {
+                if self.generated_meshes.contains(&position) {
+                    continue;
+                }
 
-            self.generated_meshes.extend(&non_generated_visible_chunks);
-            for position in non_generated_visible_chunks {
-                position_sender.send(position).unwrap();
+                mesh_updater.generate(position);
+                self.generated_meshes.insert(position);
             }
 
             let mut ungenerated_meshes = Vec::default();
@@ -137,9 +126,7 @@ impl World {
                 }
             });
             for position in ungenerated_meshes {
-                meshes_sender
-                    .send(MeshesMessage::Ungenerate { position })
-                    .unwrap();
+                mesh_updater.ungenerate(position);
             }
         }
     }

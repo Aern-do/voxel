@@ -29,6 +29,23 @@ use crate::{
     },
 };
 
+pub struct MeshUpdater {
+    position_sender: Sender<IVec3>,
+    meshes_sender: Sender<MeshesMessage>,
+}
+
+impl MeshUpdater {
+    pub fn generate(&self, position: IVec3) {
+        self.position_sender.send(position).unwrap();
+    }
+
+    pub fn ungenerate(&self, position: IVec3) {
+        self.meshes_sender
+            .send(MeshesMessage::Ungenerate { position })
+            .unwrap();
+    }
+}
+
 pub struct Application {
     context: Arc<Context>,
     window: Arc<Window>,
@@ -37,8 +54,7 @@ pub struct Application {
     world: World,
     camera: Camera,
 
-    position_sender: Sender<IVec3>,
-    meshes_sender: Sender<MeshesMessage>,
+    mesh_updater: MeshUpdater,
     meshes: Meshes,
 
     last_frame_time: Instant,
@@ -95,8 +111,10 @@ impl Application {
             world,
             camera,
 
-            position_sender,
-            meshes_sender,
+            mesh_updater: MeshUpdater {
+                position_sender,
+                meshes_sender,
+            },
             meshes,
 
             last_frame_time: Instant::now(),
@@ -116,8 +134,7 @@ impl Application {
 
         self.renderer.update(delta_time);
         self.camera.update(delta_time, &self.context);
-        self.world
-            .update(&self.camera, &self.position_sender, &self.meshes_sender);
+        self.world.update(&self.camera, &self.mesh_updater);
 
         self.last_frame_time = Instant::now();
         self.window.request_redraw();
