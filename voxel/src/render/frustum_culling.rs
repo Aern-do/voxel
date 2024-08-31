@@ -1,19 +1,4 @@
-use std::cmp::max;
-
 use glam::{vec3, Mat4, Vec3, Vec4, Vec4Swizzles};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Relation {
-    Inside,
-    Intersect,
-    Outside,
-}
-
-impl Relation {
-    pub fn is_inside(&self) -> bool {
-        matches!(self, Relation::Inside | Relation::Intersect)
-    }
-}
 
 #[derive(Debug, Clone, Copy)]
 pub struct Plane {
@@ -34,8 +19,7 @@ impl Plane {
     }
 
     pub fn normalize(&self) -> Plane {
-        let denom = 1.0 / self.normal.length();
-
+        let denom = self.normal.length_recip();
         Plane::new(self.normal * denom, self.distance * denom)
     }
 }
@@ -97,19 +81,12 @@ impl AABB {
         Self { min, max }
     }
 
-    fn is_point_on_plane(plane: &Plane, point: Vec3) -> Relation {
+    fn is_point_on_plane(plane: &Plane, point: Vec3) -> bool {
         let distance = point.dot(plane.normal);
-
-        if distance > plane.distance {
-            Relation::Inside
-        } else if distance < plane.distance {
-            Relation::Outside
-        } else {
-            Relation::Intersect
-        }
+        distance >= plane.distance
     }
 
-    pub fn is_on_plane(self, plane: &Plane) -> Relation {
+    pub fn is_on_plane(self, plane: &Plane) -> bool {
         let corners = [
             self.min,
             vec3(self.max.x, self.min.y, self.min.z),
@@ -122,24 +99,15 @@ impl AABB {
         ];
 
         let first = AABB::is_point_on_plane(plane, corners[0]);
-
         for point in corners[1..].iter() {
             if AABB::is_point_on_plane(plane, *point) != first {
-                return Relation::Intersect;
+                return true;
             }
         }
-
         first
     }
 
     pub fn is_on_frustum(&self, frustum: &Frustum) -> bool {
-        frustum
-            .iter()
-            .fold(Relation::Inside, |cur, plane| {
-                let result = self.is_on_plane(plane);
-
-                max(result, cur)
-            })
-            .is_inside()
+        frustum.iter().all(|plane| self.is_on_plane(plane))
     }
 }
