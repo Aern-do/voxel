@@ -205,9 +205,9 @@ fn ao_values(neighborhood: &ChunkNeighborhood, position: UVec3, direction: Direc
 
 fn ao_value(side1: bool, corner: bool, side2: bool) -> u8 {
     match (side1, corner, side2) {
-        (false, false, false) => 3,
-        (true, true, false) | (false, true, true) => 1,
         (true, _, true) => 0,
+        (true, true, false) | (false, true, true) => 1,
+        (false, false, false) => 3,
         _ => 2,
     }
 }
