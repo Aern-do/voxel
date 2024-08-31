@@ -1,6 +1,7 @@
 struct CameraUniform {
     projection_matrix: mat4x4<f32>,
-    transformation_matrix: mat4x4<f32>
+    transformation_matrix: mat4x4<f32>,
+    position: vec3<f32>    
 }
 
 struct AtlasUniform {
@@ -30,10 +31,10 @@ struct VertexInput {
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
-
+    
     @location(0) uv: vec2<f32>,
     @location(1) ao: f32,
-    @location(2) debug: vec3<f32>
+    @location(2) frag_pos: vec3<f32>
 }
 
 fn calculate_uv(
@@ -75,40 +76,29 @@ fn vs_main(in: VertexInput) -> VertexOutput {
 
     let ao_value = (in.packed >> 15) & 0x3;
     let texture_id = (in.packed >> 9) & 0x3f;
-    let direction = (in.packed >> 6) & 0x7;
 
     out.uv = calculate_uv(texture_id, in.vertex_index);
     out.clip_position = camera.projection_matrix * camera.transformation_matrix * vec4<f32>(transformation + vec3<f32>(x, y, z), 1.0);
     out.ao = ao_lerps[ao_value];
-
-    switch direction {
-        case 0u: {
-            out.debug = vec3<f32>(0.25);
-        }
-        case 1u: {
-            out.debug = vec3<f32>(0.25);
-        }
-        case 2u: {
-            out.debug = vec3<f32>(0.25);
-        }
-        case 3u: {
-            out.debug = vec3<f32>(1.0, 0.0, 0.0);
-        }
-        case 4u: {
-            out.debug = vec3<f32>(0.25);
-        }
-        case 5u, default: {
-            out.debug = vec3<f32>(0.25);
-        }         
-
-    }
+    out.frag_pos = transformation + vec3<f32>(x, y, z);
 
     return out;
 }
 
+const FOG_START: f32 = 260.0;
+const FOG_COLOR: vec4<f32> = vec4<f32>(1.0, 1.0, 1.0, 1.0);
+
+fn ease_in_quint(x: f32) -> f32 {
+    return x * x * x * x * x;
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    var color = textureSample(texture_atlas, atlas_sampler, in.uv);
+    let texture_color = textureSample(texture_atlas, atlas_sampler, in.uv);
+    let color = vec4<f32>(texture_color.rgb * in.ao, texture_color.a);
 
-    return vec4<f32>(color.rgb * in.ao, color.a);
+    let fog_distance = distance(camera.position.xz, in.frag_pos.xz) / FOG_START;
+    let fog = ease_in_quint(fog_distance);
+    
+    return mix(color, FOG_COLOR, fog);
 }

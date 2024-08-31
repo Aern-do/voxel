@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3};
-use voxel_util::{AsBindGroup, Context, IntoLayout, Uniform, Vertex};
+use voxel_util::{bind_group::VertexFragment, AsBindGroup, Context, IntoLayout, Uniform};
 use winit::{dpi::PhysicalSize, event::ElementState, keyboard::KeyCode};
 
 #[repr(C)]
@@ -10,6 +10,8 @@ use winit::{dpi::PhysicalSize, event::ElementState, keyboard::KeyCode};
 pub struct CameraUniform {
     projection_matrix: Mat4,
     transformation_matrix: Mat4,
+    position: Vec3,
+    _1: u32,
 }
 
 impl CameraUniform {
@@ -24,6 +26,9 @@ impl CameraUniform {
     ) -> Self {
         self.projection_matrix = projection.calculate_matrix();
         self.transformation_matrix = transformation.calculate_matrix();
+        self.position = transformation.position();
+        self._1 = 0;
+
         self
     }
 }
@@ -78,7 +83,7 @@ impl Camera {
 }
 
 impl AsBindGroup for Camera {
-    type Layout = ((Vertex, Uniform<CameraUniform>),);
+    type Layout = ((VertexFragment, Uniform<CameraUniform>),);
 
     fn resources(&self) -> <Self::Layout as IntoLayout>::Bindings<'_> {
         (&self.uniform,)

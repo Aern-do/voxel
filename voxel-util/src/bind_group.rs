@@ -29,6 +29,15 @@ impl AsShaderStages for Vertex {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct VertexFragment;
+
+impl AsShaderStages for VertexFragment {
+    fn as_shader_stages() -> ShaderStages {
+        ShaderStages::VERTEX_FRAGMENT
+    }
+}
+
 pub trait Binding {
     fn ty() -> BindingType;
     fn count() -> Option<NonZeroU32>;
