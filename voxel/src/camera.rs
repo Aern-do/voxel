@@ -168,6 +168,7 @@ pub struct CameraController {
     forward: Direction,
     horizontal: Direction,
     vertical: Direction,
+    sprint: bool,
 }
 
 impl CameraController {
@@ -188,6 +189,8 @@ impl CameraController {
             KeyCode::Space => self.vertical.set_pos(pressed),
             KeyCode::ShiftLeft => self.vertical.set_neg(pressed),
 
+            KeyCode::ControlLeft => self.sprint = pressed,
+
             _ => {}
         }
     }
@@ -198,9 +201,10 @@ impl CameraController {
     }
 
     pub fn update_camera(&mut self, transformation: &mut Transformation, dt: Duration) {
-        const SENSITIVITY: f32 = 45.0;
-        const SPEED: f32 = 48.0;
-        const VERTICAL_SPEED: f32 = SPEED;
+        const SENSITIVITY: f32 = 90.0;
+        const SPEED: f32 = 100.0;
+        const VERTICAL_SPEED: f32 = 150.0;
+        const SPRINT_MULTIPLIER: f32 = 3.0;
 
         let dt = dt.as_secs_f32();
 
@@ -210,7 +214,8 @@ impl CameraController {
         let forward = Vec3::new(yaw_cos * pitch_cos, 0.0, yaw_sin * pitch_cos).normalize();
         let horizontal = Vec3::new(-yaw_sin, 0.0, yaw_cos).normalize();
 
-        transformation.position += forward * (self.forward.value() * SPEED * dt);
+        let sprint = if self.sprint { SPRINT_MULTIPLIER } else { 1.0 };
+        transformation.position += forward * (self.forward.value() * SPEED * sprint * dt);
         transformation.position += horizontal * (self.horizontal.value() * SPEED * dt);
         transformation.position += Vec3::Y * (self.vertical.value() * VERTICAL_SPEED * dt);
 
