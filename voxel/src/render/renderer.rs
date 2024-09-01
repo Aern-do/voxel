@@ -5,6 +5,7 @@ use wgpu::{
     RenderPassDepthStencilAttachment, RenderPassDescriptor, StoreOp, TextureFormat, TextureUsages,
     TextureViewDescriptor,
 };
+use winit::dpi::PhysicalSize;
 
 use crate::application::Meshes;
 
@@ -21,12 +22,15 @@ pub struct Renderer {
 
 impl Renderer {
     pub fn new(camera_resource: ShaderResource, context: Arc<Context>) -> Self {
-        let depth_texture = Texture::new(
-            (context.config().width, context.config().height),
-            TextureUsages::RENDER_ATTACHMENT,
-            TextureFormat::Depth32Float,
-            &context,
-        );
+        let depth_texture = {
+            let config = context.config();
+            Texture::new(
+                (config.width, config.height),
+                TextureUsages::RENDER_ATTACHMENT,
+                TextureFormat::Depth32Float,
+                &context,
+            )
+        };
 
         let world_pass = WorldPass::new(&camera_resource, &context);
         let debug_pass = DebugPass::new(&context);
@@ -42,6 +46,16 @@ impl Renderer {
 
     pub fn update(&mut self, delta_time: Duration) {
         self.debug_pass.update(delta_time, &self.context);
+    }
+
+    pub fn resize(&mut self, new_size: PhysicalSize<u32>) {
+        self.depth_texture = Texture::new(
+            (new_size.width, new_size.height),
+            TextureUsages::RENDER_ATTACHMENT,
+            TextureFormat::Depth32Float,
+            &self.context,
+        );
+        self.debug_pass.resize(new_size, &self.context);
     }
 
     pub fn draw(&mut self, frustum: &Frustum, meshes: &Meshes) {

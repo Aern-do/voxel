@@ -15,7 +15,7 @@ use rayon::iter::{IndexedParallelIterator, ParallelDrainRange, ParallelIterator}
 use voxel_util::{AsBindGroup, Context};
 use winit::{
     application::ApplicationHandler,
-    dpi::PhysicalPosition,
+    dpi::{PhysicalPosition, PhysicalSize},
     event::{DeviceEvent, DeviceId, ElementState, KeyEvent, WindowEvent},
     event_loop::ActiveEventLoop,
     keyboard::{KeyCode, PhysicalKey},
@@ -85,7 +85,7 @@ impl Application {
         let context = Arc::new(Context::new(Arc::clone(&window)).await?);
         let camera = Camera::new(
             Transformation::new(Vec3::new(-2.0, 90.0, -2.0), -90.0_f32.to_radians(), 0.0),
-            Projection::new(window.inner_size(), 45.0_f32.to_radians(), 0.1, 1000.0),
+            Projection::new(window.inner_size(), 70.0_f32.to_radians(), 0.1, 1000.0),
             &context,
         );
 
@@ -190,6 +190,12 @@ impl Application {
         self.window.request_redraw();
     }
 
+    pub fn resize(&mut self, new_size: PhysicalSize<u32>) {
+        self.context.resize(new_size);
+        self.renderer.resize(new_size);
+        self.camera.resize(new_size);
+    }
+
     pub fn keyboard_input(&mut self, key_code: KeyCode, state: ElementState) {
         self.camera.process_key(key_code, state);
     }
@@ -212,6 +218,7 @@ impl ApplicationHandler for Application {
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
         match event {
             WindowEvent::RedrawRequested => self.draw(),
+            WindowEvent::Resized(new_size) => self.resize(new_size),
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::KeyboardInput {
                 event:

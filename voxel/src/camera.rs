@@ -61,6 +61,10 @@ impl Camera {
         );
     }
 
+    pub fn resize(&mut self, new_size: PhysicalSize<u32>) {
+        self.projection.aspect = new_size.width as f32 / new_size.height as f32;
+    }
+
     pub fn process_mouse(&mut self, mouse_dx: f64, mouse_dy: f64) {
         self.controller.process_mouse(mouse_dx, mouse_dy)
     }

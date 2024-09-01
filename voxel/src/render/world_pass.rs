@@ -52,7 +52,7 @@ impl ChunkBuffer {
         });
 
         let min = transformation * RawChunk::SIZE as i32;
-        let aabb = AABB::new(min.as_vec3(), (min + RawChunk::SIZE as i32 - 1).as_vec3());
+        let aabb = AABB::new(min.as_vec3(), (min + RawChunk::SIZE as i32).as_vec3());
 
         let transformation_resource = context
             .create_shader_resource::<Transformation>(&Uniform::new(transformation, context));

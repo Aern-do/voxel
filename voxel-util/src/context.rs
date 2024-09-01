@@ -1,4 +1,7 @@
-use std::{marker::PhantomData, sync::Arc};
+use std::{
+    marker::PhantomData,
+    sync::{Arc, Mutex, MutexGuard},
+};
 
 use thiserror::Error;
 use wgpu::{
@@ -7,7 +10,7 @@ use wgpu::{
     PipelineLayout, PipelineLayoutDescriptor, PowerPreference, PresentMode, Queue,
     RequestAdapterOptions, RequestDeviceError, Surface, SurfaceConfiguration,
 };
-use winit::window::Window;
+use winit::{dpi::PhysicalSize, window::Window};
 
 use crate::{
     bind_group::{IntoBindingResources, IntoLayout, Layout, ShaderResource},
@@ -30,7 +33,7 @@ pub enum ContextError {
 pub struct Context {
     device: Device,
     queue: Queue,
-    config: SurfaceConfiguration,
+    config: Mutex<SurfaceConfiguration>,
     surface: Surface<'static>,
 }
 
@@ -78,7 +81,7 @@ impl Context {
             surface,
             device,
             queue,
-            config,
+            config: Mutex::new(config),
         })
     }
 
@@ -138,6 +141,14 @@ impl Context {
         RenderPipelineBuilder::new::<V>(self, base_pipeline)
     }
 
+    pub fn resize(&self, new_size: PhysicalSize<u32>) {
+        let mut config = self.config();
+        config.width = new_size.width;
+        config.height = new_size.height;
+
+        self.surface().configure(&self.device, &config)
+    }
+
     pub fn surface(&self) -> &Surface<'static> {
         &self.surface
     }
@@ -150,7 +161,7 @@ impl Context {
         &self.queue
     }
 
-    pub fn config(&self) -> &SurfaceConfiguration {
-        &self.config
+    pub fn config(&self) -> MutexGuard<'_, SurfaceConfiguration> {
+        self.config.lock().expect("lock failed")
     }
 }

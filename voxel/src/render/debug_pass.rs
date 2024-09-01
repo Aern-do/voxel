@@ -9,6 +9,7 @@ use wgpu_text::{
     },
     BrushBuilder, TextBrush,
 };
+use winit::dpi::PhysicalSize;
 
 use crate::asset;
 
@@ -38,14 +39,11 @@ pub struct DebugPass {
 
 impl DebugPass {
     pub fn new(context: &Context) -> Self {
+        let config = context.config();
+
         let brush = BrushBuilder::using_font_bytes(include_bytes!(asset!("monogram.ttf")))
             .expect("invalid font")
-            .build(
-                context.device(),
-                context.config().width,
-                context.config().height,
-                context.config().format,
-            );
+            .build(context.device(), config.width, config.height, config.format);
 
         Self {
             brush,
@@ -71,6 +69,14 @@ impl DebugPass {
         self.brush
             .queue(context.device(), context.queue(), [&self.fps_section])
             .expect("cache texture limit exceeded");
+    }
+
+    pub fn resize(&mut self, new_size: PhysicalSize<u32>, context: &Context) {
+        self.brush.resize_view(
+            new_size.width as f32,
+            new_size.height as f32,
+            context.queue(),
+        );
     }
 }
 
