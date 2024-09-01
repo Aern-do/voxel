@@ -221,7 +221,7 @@ impl CameraController {
 
         let sprint = if self.sprint { SPRINT_MULTIPLIER } else { 1.0 };
         transformation.position += forward * (self.forward.value() * SPEED * sprint * dt);
-        transformation.position += horizontal * (self.horizontal.value() * SPEED * dt);
+        transformation.position += horizontal * (self.horizontal.value() * SPEED * sprint * dt);
         transformation.position += Vec3::Y * (self.vertical.value() * VERTICAL_SPEED * dt);
 
         transformation.yaw += self.rotate_horizontal.to_radians() * SENSITIVITY * dt;

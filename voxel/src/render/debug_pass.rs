@@ -20,7 +20,7 @@ impl OwnedSectionExt for OwnedSection {
     fn set_text<T: Into<String>>(&mut self, text: T) -> &mut OwnedText {
         let text = OwnedText::new(text.into());
 
-        match self.text.get(0) {
+        match self.text.first() {
             Some(..) => self.text[0] = text,
             None => self.text.push(text),
         };

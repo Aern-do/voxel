@@ -1,8 +1,8 @@
 use noise::{NoiseFn, Perlin};
 
 use super::{
-    chunk::{ChunkSection, ChunkSectionPosition, Volume},
-    Block, Chunk,
+    chunk::{ChunkSection, ChunkSectionPosition, RawChunk, Volume},
+    Block,
 };
 
 pub const SECTION_SIZE: usize = 16;
@@ -20,12 +20,12 @@ impl Generate for DefaultGenerator {
     fn generate_section(&self, position: ChunkSectionPosition) -> ChunkSection {
         let mut section = ChunkSection::default();
 
-        for x in 0..Chunk::SIZE {
-            for z in 0..Chunk::SIZE {
+        for x in 0..RawChunk::SIZE {
+            for z in 0..RawChunk::SIZE {
                 const SCALE: f64 = 64.0;
 
-                let global_x = (position.x * Chunk::SIZE as i32) + x as i32;
-                let global_z = (position.z * Chunk::SIZE as i32) + z as i32;
+                let global_x = (position.x * RawChunk::SIZE as i32) + x as i32;
+                let global_z = (position.z * RawChunk::SIZE as i32) + z as i32;
 
                 let noise_x = global_x as f64 / SCALE;
                 let noise_z = global_z as f64 / SCALE;
@@ -33,8 +33,8 @@ impl Generate for DefaultGenerator {
                 let height = self.perlin.get([noise_x, noise_z]) / 2.0 + 0.5;
                 let height = 48 + (height * 48.0) as u32;
 
-                for y in 0..Chunk::SIZE * SECTION_SIZE as u32 {
-                    section[(x, y, z).into()] = {
+                for y in 0..RawChunk::SIZE * SECTION_SIZE as u32 {
+                    let block = {
                         if height > y {
                             let dy = height - y;
                             if dy == 1 {
@@ -59,7 +59,8 @@ impl Generate for DefaultGenerator {
                         } else {
                             continue;
                         }
-                    }
+                    };
+                    section.set((x, y, z).into(), block);
                 }
             }
         }

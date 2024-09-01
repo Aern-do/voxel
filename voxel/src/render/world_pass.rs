@@ -10,8 +10,12 @@ use wgpu::{
 };
 
 use crate::{
+    application::Meshes,
     asset,
-    world::{chunk::Volume, meshes::Meshes, Chunk, RawMesh},
+    world::{
+        chunk::{RawChunk, Volume},
+        RawMesh,
+    },
 };
 
 use super::{
@@ -47,8 +51,8 @@ impl ChunkBuffer {
             usage: BufferUsages::INDEX,
         });
 
-        let min = transformation * Chunk::SIZE as i32;
-        let aabb = AABB::new(min.as_vec3(), (min + Chunk::SIZE as i32 - 1).as_vec3());
+        let min = transformation * RawChunk::SIZE as i32;
+        let aabb = AABB::new(min.as_vec3(), (min + RawChunk::SIZE as i32 - 1).as_vec3());
 
         let transformation_resource = context
             .create_shader_resource::<Transformation>(&Uniform::new(transformation, context));
@@ -135,7 +139,7 @@ impl WorldPass {
         render_pass.set_pipeline(&self.render_pipeline);
         render_pass.set_bind_group(1, self.spritesheet_resource.bind_group(), &[]);
 
-        for chunk_buffer in meshes.values() {
+        for chunk_buffer in meshes.generated.read().values() {
             if chunk_buffer.aabb.is_on_frustum(frustum) {
                 render_pass.set_bind_group(
                     2,

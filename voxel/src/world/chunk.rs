@@ -1,10 +1,11 @@
-use std::ops::{Index, IndexMut};
+use std::{
+    collections::HashMap,
+    ops::{Index, IndexMut},
+};
 
 use glam::{uvec3, IVec3, UVec3};
 
-use crate::world::EMPTY_CHUNK;
-
-use super::{Block, ChunksInner};
+use super::Block;
 
 pub trait Volume {
     const SIZE: u32;
@@ -29,44 +30,70 @@ pub trait Volume {
 
 pub const CHUNK_SIZE: usize = 16;
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct Chunk {
-    blocks: Option<Box<[[[Block; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE]>>,
+pub type ChunkSlice = [[Block; CHUNK_SIZE]; CHUNK_SIZE];
+
+#[derive(Default, Clone)]
+pub struct RawChunk {
+    pub stack: [ChunkSlice; CHUNK_SIZE],
 }
 
-impl Volume for Chunk {
-    const SIZE: u32 = CHUNK_SIZE as u32;
-}
+impl RawChunk {
+    pub fn iter(&self) -> impl Iterator<Item = Block> + '_ {
+        self.stack.iter().copied().flatten().flatten()
+    }
 
-impl Chunk {
-    fn is_empty(&self) -> bool {
-        !self.blocks.as_ref().is_some_and(|blocks| {
-            blocks
-                .iter()
-                .copied()
-                .flatten()
-                .flatten()
-                .any(|block| block != Block::Air)
+    pub fn iter_enumerate(&self) -> impl Iterator<Item = (UVec3, Block)> + '_ {
+        self.stack.iter().enumerate().flat_map(|(y, blocks_xz)| {
+            let y = y as u32;
+            blocks_xz.iter().enumerate().flat_map(move |(x, blocks_z)| {
+                let x = x as u32;
+                blocks_z.iter().copied().enumerate().map(move |(z, block)| {
+                    let z = z as u32;
+                    (uvec3(x, y, z), block)
+                })
+            })
         })
     }
 }
 
-impl Index<UVec3> for Chunk {
+impl Index<UVec3> for RawChunk {
     type Output = Block;
 
     fn index(&self, position: UVec3) -> &Self::Output {
-        if let Some(blocks) = &self.blocks {
-            &blocks[position.x as usize][position.z as usize][position.y as usize]
-        } else {
-            &Block::Air
-        }
+        &self.stack[position.y as usize][position.x as usize][position.z as usize]
     }
 }
 
-impl IndexMut<UVec3> for Chunk {
+impl IndexMut<UVec3> for RawChunk {
     fn index_mut(&mut self, position: UVec3) -> &mut Self::Output {
-        &mut self.blocks.get_or_insert_with(Default::default)[position.x as usize]
-            [position.z as usize][position.y as usize]
+        &mut self.stack[position.y as usize][position.x as usize][position.z as usize]
+    }
+}
+
+impl Volume for RawChunk {
+    const SIZE: u32 = CHUNK_SIZE as u32;
+}
+
+pub type Chunk = Box<RawChunk>;
+
+#[derive(Default, Clone, Copy)]
+pub struct ChunkOrAir<'s>(pub Option<&'s Chunk>);
+
+impl<'s> ChunkOrAir<'s> {
+    pub fn new(chunk: &'s Chunk) -> Self {
+        Self(Some(chunk))
+    }
+}
+
+impl Index<UVec3> for ChunkOrAir<'_> {
+    type Output = Block;
+
+    fn index(&self, position: UVec3) -> &Self::Output {
+        if let Some(chunk) = self.0 {
+            &chunk[position]
+        } else {
+            &Block::Air
+        }
     }
 }
 
@@ -79,45 +106,49 @@ const OFFSETS: [IVec3; 6] = [
     IVec3::NEG_Z,
 ];
 
+#[derive(Clone, Copy)]
 pub struct ChunkNeighborhood<'s> {
-    chunks: &'s ChunksInner,
+    chunks: &'s HashMap<IVec3, Chunk>,
     center: IVec3,
 }
 
 impl<'s> ChunkNeighborhood<'s> {
-    pub fn new(chunks: &'s ChunksInner, center: IVec3) -> Self {
+    pub fn new(chunks: &'s HashMap<IVec3, Chunk>, center: IVec3) -> Self {
         Self { chunks, center }
     }
 
     pub fn get(&self, position: UVec3) -> Block {
-        const MAX: u32 = Chunk::SIZE + 1;
+        const MAX: u32 = RawChunk::SIZE + 1;
 
         let center = self.chunks.get(&self.center).unwrap();
-        let neighbors = OFFSETS
-            .map(|offset| self.center + offset)
-            .map(|position| self.chunks.get(&position).unwrap_or(&EMPTY_CHUNK));
+        let neighbors = OFFSETS.map(|offset| self.center + offset).map(|position| {
+            self.chunks
+                .get(&position)
+                .map(ChunkOrAir::new)
+                .unwrap_or_default()
+        });
 
         match (position.x, position.y, position.z) {
-            (1..=Chunk::SIZE, 1..=Chunk::SIZE, 1..=Chunk::SIZE) => {
+            (1..=RawChunk::SIZE, 1..=RawChunk::SIZE, 1..=RawChunk::SIZE) => {
                 center[(position.x - 1, position.y - 1, position.z - 1).into()]
             }
-            (MAX, 1..=Chunk::SIZE, 1..=Chunk::SIZE) => {
+            (MAX, 1..=RawChunk::SIZE, 1..=RawChunk::SIZE) => {
                 neighbors[0][(0, position.y - 1, position.z - 1).into()]
             }
-            (0, 1..=Chunk::SIZE, 1..=Chunk::SIZE) => {
-                neighbors[1][(Chunk::SIZE - 1, position.y - 1, position.z - 1).into()]
+            (0, 1..=RawChunk::SIZE, 1..=RawChunk::SIZE) => {
+                neighbors[1][(RawChunk::SIZE - 1, position.y - 1, position.z - 1).into()]
             }
-            (1..=Chunk::SIZE, MAX, 1..=Chunk::SIZE) => {
+            (1..=RawChunk::SIZE, MAX, 1..=RawChunk::SIZE) => {
                 neighbors[2][(position.x - 1, 0, position.z - 1).into()]
             }
-            (1..=Chunk::SIZE, 0, 1..=Chunk::SIZE) => {
-                neighbors[3][(position.x - 1, Chunk::SIZE - 1, position.z - 1).into()]
+            (1..=RawChunk::SIZE, 0, 1..=RawChunk::SIZE) => {
+                neighbors[3][(position.x - 1, RawChunk::SIZE - 1, position.z - 1).into()]
             }
-            (1..=Chunk::SIZE, 1..=Chunk::SIZE, MAX) => {
+            (1..=RawChunk::SIZE, 1..=RawChunk::SIZE, MAX) => {
                 neighbors[4][(position.x - 1, position.y - 1, 0).into()]
             }
-            (1..=Chunk::SIZE, 1..=Chunk::SIZE, 0) => {
-                neighbors[5][(position.x - 1, position.y - 1, Chunk::SIZE - 1).into()]
+            (1..=RawChunk::SIZE, 1..=RawChunk::SIZE, 0) => {
+                neighbors[5][(position.x - 1, position.y - 1, RawChunk::SIZE - 1).into()]
             }
             (_, _, _) => Block::Air,
         }
@@ -159,9 +190,21 @@ impl ChunkSectionPosition {
     }
 }
 
-#[derive(Debug, Default, Clone)]
+impl From<(i32, i32)> for ChunkSectionPosition {
+    fn from((x, z): (i32, i32)) -> Self {
+        Self::new(x, z)
+    }
+}
+
+impl From<IVec3> for ChunkSectionPosition {
+    fn from(IVec3 { x, z, .. }: IVec3) -> Self {
+        Self::new(x, z)
+    }
+}
+
+#[derive(Default, Clone)]
 pub struct ChunkSection {
-    chunks: [Chunk; SECTION_SIZE],
+    chunks: [Option<Chunk>; SECTION_SIZE],
 }
 
 impl ChunkSection {
@@ -169,7 +212,24 @@ impl ChunkSection {
         self.chunks
             .into_iter()
             .enumerate()
-            .filter(|(_, chunk)| !chunk.is_empty())
+            .filter_map(|(position, chunk)| {
+                let chunk = chunk?;
+                if chunk.iter().any(|block| block != Block::Air) {
+                    Some((position, chunk))
+                } else {
+                    None
+                }
+            })
+    }
+
+    pub fn set(&mut self, position: UVec3, block: Block) {
+        assert!(block != Block::Air);
+
+        let index = (position.y / RawChunk::SIZE) as usize;
+        let position = position.with_y(position.y % RawChunk::SIZE);
+
+        let chunk = self.chunks[index].get_or_insert_with(Default::default);
+        chunk[position] = block;
     }
 }
 
@@ -177,18 +237,12 @@ impl Index<UVec3> for ChunkSection {
     type Output = Block;
 
     fn index(&self, position: UVec3) -> &Self::Output {
-        let index = position.y / Chunk::SIZE;
-        let chunk = &self.chunks[index as usize];
+        let index = (position.y / RawChunk::SIZE) as usize;
+        let position = position.with_y(position.y % RawChunk::SIZE);
 
-        &chunk[position - (index * Chunk::SIZE)]
-    }
-}
-
-impl IndexMut<UVec3> for ChunkSection {
-    fn index_mut(&mut self, position: UVec3) -> &mut Self::Output {
-        let index = position.y / Chunk::SIZE;
-        let chunk = &mut self.chunks[index as usize];
-
-        &mut chunk[position - (UVec3::Y * (index * Chunk::SIZE))]
+        let Some(chunk) = &self.chunks[index] else {
+            return &Block::Air;
+        };
+        &chunk[position]
     }
 }

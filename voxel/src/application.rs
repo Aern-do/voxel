@@ -1,4 +1,6 @@
 use std::{
+    collections::HashMap,
+    iter,
     sync::{
         mpsc::{channel, Sender},
         Arc,
@@ -8,6 +10,8 @@ use std::{
 };
 
 use glam::{IVec3, Vec3};
+use parking_lot::RwLock;
+use rayon::iter::{IndexedParallelIterator, ParallelDrainRange, ParallelIterator};
 use voxel_util::{AsBindGroup, Context};
 use winit::{
     application::ApplicationHandler,
@@ -21,29 +25,42 @@ use winit::{
 use crate::{
     camera::{Camera, Projection, Transformation},
     error::Error,
-    render::{frustum_culling::Frustum, Renderer},
+    render::{frustum_culling::Frustum, world_pass::ChunkBuffer, Renderer},
     world::{
-        chunk::ChunkNeighborhood,
-        meshes::{create_mesh, Meshes, MeshesMessage},
+        chunk::{Chunk, ChunkNeighborhood},
+        meshes::create_mesh,
         World,
     },
 };
 
-pub struct MeshUpdater {
-    position_sender: Sender<IVec3>,
-    meshes_sender: Sender<MeshesMessage>,
+enum MeshGeneratorMessage {
+    InsertChunks { new_chunks: Vec<(IVec3, Chunk)> },
+    SetVisible { positions: Vec<IVec3> },
 }
 
-impl MeshUpdater {
-    pub fn generate(&self, position: IVec3) {
-        self.position_sender.send(position).unwrap();
+pub struct MeshGenerator(Sender<MeshGeneratorMessage>);
+
+impl MeshGenerator {
+    fn new(sender: Sender<MeshGeneratorMessage>) -> Self {
+        Self(sender)
     }
 
-    pub fn ungenerate(&self, position: IVec3) {
-        self.meshes_sender
-            .send(MeshesMessage::Ungenerate { position })
+    pub fn insert_chunks(&self, new_chunks: Vec<(IVec3, Chunk)>) {
+        self.0
+            .send(MeshGeneratorMessage::InsertChunks { new_chunks })
             .unwrap();
     }
+
+    pub fn set_visible(&self, positions: Vec<IVec3>) {
+        self.0
+            .send(MeshGeneratorMessage::SetVisible { positions })
+            .unwrap();
+    }
+}
+
+#[derive(Default)]
+pub struct Meshes {
+    pub generated: RwLock<HashMap<IVec3, ChunkBuffer>>,
 }
 
 pub struct Application {
@@ -54,8 +71,8 @@ pub struct Application {
     world: World,
     camera: Camera,
 
-    mesh_updater: MeshUpdater,
-    meshes: Meshes,
+    mesh_generator: MeshGenerator,
+    meshes: Arc<Meshes>,
 
     last_frame_time: Instant,
 }
@@ -75,30 +92,67 @@ impl Application {
         let renderer = Renderer::new(camera.as_shader_resource(&context), Arc::clone(&context));
         let world = World::default();
 
-        let (position_sender, position_receiver) = channel();
-        let (meshes_sender, mesh_receiver) = channel();
-        let meshes = Meshes::new(mesh_receiver);
+        let (mesh_generator_sender, mesh_generator_receiver) = channel();
+        let (to_generate_sender, to_generate_receiver) = channel();
+
+        let mesh_generator = MeshGenerator::new(mesh_generator_sender);
+        let meshes = Arc::new(Meshes::default());
+        let chunks = Arc::<RwLock<HashMap<IVec3, Chunk>>>::default();
         {
-            let chunks = world.chunks.clone();
+            let meshes = Arc::clone(&meshes);
+            let chunks = Arc::clone(&chunks);
+            thread::spawn(move || {
+                for message in mesh_generator_receiver.iter() {
+                    match message {
+                        MeshGeneratorMessage::InsertChunks { new_chunks } => {
+                            chunks.write().extend(new_chunks);
+                        }
+
+                        MeshGeneratorMessage::SetVisible { mut positions } => {
+                            meshes.generated.write().retain(|mesh_position, _| {
+                                positions
+                                    .iter()
+                                    .position(|position| position == mesh_position)
+                                    .map(|index| positions.remove(index))
+                                    .is_some()
+                            });
+
+                            positions.reverse();
+                            to_generate_sender.send(positions).unwrap();
+                        }
+                    }
+                }
+            });
+        }
+        {
             let context = Arc::clone(&context);
-            let meshes_sender = meshes_sender.clone();
+            let meshes = Arc::clone(&meshes);
+            let chunks = Arc::clone(&chunks);
 
             thread::spawn(move || {
-                while let Ok(position) = position_receiver.recv() {
-                    let chunks = chunks.clone();
-                    let context = Arc::clone(&context);
-                    let meshes_sender = meshes_sender.clone();
+                let mut new_meshes = Vec::default();
 
-                    rayon::spawn_fifo(move || {
-                        let mesh = {
+                let mut to_generate = to_generate_receiver.recv().unwrap();
+                loop {
+                    to_generate = to_generate_receiver
+                        .try_iter()
+                        .last()
+                        .unwrap_or(to_generate);
+
+                    to_generate
+                        .par_drain(to_generate.len().saturating_sub(16)..)
+                        .map(|position| {
                             let chunks = chunks.read();
                             let neighborhood = ChunkNeighborhood::new(&chunks, position);
-                            create_mesh(&neighborhood, &context)
-                        };
-                        meshes_sender
-                            .send(MeshesMessage::Insert { position, mesh })
-                            .unwrap();
-                    });
+                            let mesh = create_mesh(neighborhood, &context);
+                            (position, mesh)
+                        })
+                        .collect_into_vec(&mut new_meshes);
+
+                    meshes
+                        .generated
+                        .write()
+                        .extend(new_meshes.splice(.., iter::empty()));
                 }
             });
         }
@@ -111,10 +165,7 @@ impl Application {
             world,
             camera,
 
-            mesh_updater: MeshUpdater {
-                position_sender,
-                meshes_sender,
-            },
+            mesh_generator,
             meshes,
 
             last_frame_time: Instant::now(),
@@ -124,7 +175,6 @@ impl Application {
     pub fn draw(&mut self) {
         let frustum = Frustum::from_projection(self.camera.calculate_matrix());
 
-        self.meshes.receive();
         self.renderer.draw(&frustum, &self.meshes);
         self.update()
     }
@@ -134,7 +184,7 @@ impl Application {
 
         self.renderer.update(delta_time);
         self.camera.update(delta_time, &self.context);
-        self.world.update(&self.camera, &self.mesh_updater);
+        self.world.update(&self.camera, &self.mesh_generator);
 
         self.last_frame_time = Instant::now();
         self.window.request_redraw();
