@@ -1,8 +1,7 @@
 use std::{
     collections::HashMap,
-    iter,
     sync::{
-        mpsc::{channel, Sender},
+        mpsc::{channel, Receiver, Sender},
         Arc,
     },
     thread,
@@ -10,8 +9,8 @@ use std::{
 };
 
 use glam::{IVec3, Vec3};
-use parking_lot::RwLock;
-use rayon::iter::{IndexedParallelIterator, ParallelDrainRange, ParallelIterator};
+use parking_lot::{RwLock, RwLockReadGuard};
+use rayon::iter::{ParallelDrainRange, ParallelIterator};
 use voxel_util::{AsBindGroup, Context};
 use winit::{
     application::ApplicationHandler,
@@ -60,7 +59,13 @@ impl MeshGenerator {
 
 #[derive(Default)]
 pub struct Meshes {
-    pub generated: RwLock<HashMap<IVec3, ChunkBuffer>>,
+    generated: RwLock<HashMap<IVec3, ChunkBuffer>>,
+}
+
+impl Meshes {
+    pub fn read(&self) -> RwLockReadGuard<'_, HashMap<IVec3, ChunkBuffer>> {
+        self.generated.read()
+    }
 }
 
 pub struct Application {
@@ -71,8 +76,9 @@ pub struct Application {
     world: World,
     camera: Camera,
 
-    mesh_generator: MeshGenerator,
     meshes: Arc<Meshes>,
+    mesh_generator: MeshGenerator,
+    mesh_receiver: Receiver<(IVec3, ChunkBuffer)>,
 
     last_frame_time: Instant,
 }
@@ -94,6 +100,7 @@ impl Application {
 
         let (mesh_generator_sender, mesh_generator_receiver) = channel();
         let (to_generate_sender, to_generate_receiver) = channel();
+        let (mesh_sender, mesh_receiver) = channel();
 
         let mesh_generator = MeshGenerator::new(mesh_generator_sender);
         let meshes = Arc::new(Meshes::default());
@@ -126,12 +133,9 @@ impl Application {
         }
         {
             let context = Arc::clone(&context);
-            let meshes = Arc::clone(&meshes);
             let chunks = Arc::clone(&chunks);
 
-            thread::spawn(move || {
-                let mut new_meshes = Vec::default();
-
+            rayon::spawn(move || {
                 let mut to_generate = to_generate_receiver.recv().unwrap();
                 loop {
                     to_generate = to_generate_receiver
@@ -140,19 +144,14 @@ impl Application {
                         .unwrap_or(to_generate);
 
                     to_generate
-                        .par_drain(to_generate.len().saturating_sub(16)..)
-                        .map(|position| {
+                        .par_drain(to_generate.len().saturating_sub(8)..)
+                        .for_each(|position| {
                             let chunks = chunks.read();
                             let neighborhood = ChunkNeighborhood::new(&chunks, position);
                             let mesh = create_mesh(neighborhood, &context);
-                            (position, mesh)
-                        })
-                        .collect_into_vec(&mut new_meshes);
 
-                    meshes
-                        .generated
-                        .write()
-                        .extend(new_meshes.splice(.., iter::empty()));
+                            mesh_sender.send((position, mesh)).unwrap();
+                        });
                 }
             });
         }
@@ -169,6 +168,7 @@ impl Application {
             meshes,
 
             last_frame_time: Instant::now(),
+            mesh_receiver,
         })
     }
 
@@ -185,9 +185,17 @@ impl Application {
         self.renderer.update(delta_time);
         self.camera.update(delta_time, &self.context);
         self.world.update(&self.camera, &self.mesh_generator);
+        self.receive_meshes();
 
         self.last_frame_time = Instant::now();
         self.window.request_redraw();
+    }
+
+    fn receive_meshes(&self) {
+        let mut meshes = self.mesh_receiver.try_iter().peekable();
+        if meshes.peek().is_some() {
+            self.meshes.generated.write().extend(meshes);
+        }
     }
 
     pub fn resize(&mut self, new_size: PhysicalSize<u32>) {

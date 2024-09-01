@@ -139,7 +139,7 @@ impl WorldPass {
         render_pass.set_pipeline(&self.render_pipeline);
         render_pass.set_bind_group(1, self.spritesheet_resource.bind_group(), &[]);
 
-        for chunk_buffer in meshes.generated.read().values() {
+        for chunk_buffer in meshes.read().values() {
             if chunk_buffer.aabb.is_on_frustum(frustum) {
                 render_pass.set_bind_group(
                     2,
