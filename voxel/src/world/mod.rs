@@ -48,12 +48,17 @@ pub struct World {
     chunks: HashMap<IVec3, Chunk>,
     generated_sections: HashSet<ChunkSectionPosition>,
     generator: DefaultGenerator,
+    previous_origin: IVec3,
 }
 
 impl World {
     pub fn update(&mut self, camera: &Camera, mesh_generator: &MeshGenerator) {
-        // let instant = std::time::Instant::now();
         let origin = camera.transformation().position().as_ivec3() / CHUNK_SIZE as i32;
+        if origin == self.previous_origin {
+            return;
+        }
+
+        self.previous_origin = origin;
 
         {
             let new_section_positions = {
