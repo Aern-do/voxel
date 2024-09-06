@@ -45,9 +45,9 @@ pub trait Binding {
 }
 
 #[derive(Debug)]
-pub struct Layout<L: IntoLayout>(pub(crate) BindGroupLayout, pub(crate) PhantomData<L>);
+pub struct Layout<L: BindingEntries>(pub(crate) BindGroupLayout, pub(crate) PhantomData<L>);
 
-impl<L: IntoLayout> Deref for Layout<L> {
+impl<L: BindingEntries> Deref for Layout<L> {
     type Target = BindGroupLayout;
 
     fn deref(&self) -> &Self::Target {
@@ -55,22 +55,21 @@ impl<L: IntoLayout> Deref for Layout<L> {
     }
 }
 
-impl<L: IntoLayout> Layout<L> {
+impl<L: BindingEntries> Layout<L> {
     pub fn erase(self) -> BindGroupLayout {
         self.0
     }
 }
 
-pub trait IntoLayout {
-    type Bindings<'b>: IntoBindingResources
+pub trait BindingEntries {
+    type Bindings<'b>: BindingResources
     where
         Self: 'b;
-    fn into_binding_entries() -> &'static [BindGroupLayoutEntry];
+    fn binding_entries() -> &'static [BindGroupLayoutEntry];
 }
 
-// FIXME rename to `ToBindingResources` and `to_binding_resources`
-pub trait IntoBindingResources {
-    fn into_binding_resources(&self) -> SmallVec<BindGroupEntry>;
+pub trait BindingResources {
+    fn binding_resources(&self) -> SmallVec<BindGroupEntry>;
 }
 
 #[derive(Debug)]
@@ -94,16 +93,16 @@ impl ShaderResource {
 }
 
 pub trait AsBindGroup {
-    type Layout: IntoLayout;
+    type BindingEntries: BindingEntries;
 
-    fn resources(&self) -> <Self::Layout as IntoLayout>::Bindings<'_>;
+    fn resources(&self) -> <Self::BindingEntries as BindingEntries>::Bindings<'_>;
 
-    fn as_bind_group(&self, layout: &Layout<Self::Layout>, context: &Context) -> BindGroup {
+    fn as_bind_group(&self, layout: &Layout<Self::BindingEntries>, context: &Context) -> BindGroup {
         context.create_bind_group(layout, self.resources())
     }
 
-    fn as_bind_group_layout(context: &Context) -> Layout<Self::Layout> {
-        context.create_bind_group_layout::<Self::Layout>()
+    fn as_bind_group_layout(context: &Context) -> Layout<Self::BindingEntries> {
+        context.create_bind_group_layout::<Self::BindingEntries>()
     }
 
     fn as_shader_resource(&self, context: &Context) -> ShaderResource {
@@ -119,10 +118,10 @@ pub trait AsBindGroup {
 
 macro_rules! impl_into_binding_entries {
     ($($generic:ident)*) => {paste::paste!{
-        impl<$([<$generic S>]: AsShaderStages, [<$generic B>]: Binding),*> IntoLayout for ($(([<$generic S>], [<$generic B>])),*, ) {
+        impl<$([<$generic S>]: AsShaderStages, [<$generic B>]: Binding),*> BindingEntries for ($(([<$generic S>], [<$generic B>])),*, ) {
             type Bindings<'b> = ($(&'b [<$generic B>]),*,) where Self: 'b;
 
-            fn into_binding_entries() -> &'static [BindGroupLayoutEntry] {
+            fn binding_entries() -> &'static [BindGroupLayoutEntry] {
                 static LOCK: OnceLock<[BindGroupLayoutEntry; { count!($($generic)*) }]> = OnceLock::new();
 
                 let mut index = 0;
@@ -141,8 +140,8 @@ macro_rules! impl_into_binding_entries {
             }
         }
 
-        impl<'b, $($generic: Binding),*> IntoBindingResources for ($(&'b $generic),*, ) {
-            fn into_binding_resources(&self) -> SmallVec<BindGroupEntry> {
+        impl<'b, $($generic: Binding),*> BindingResources for ($(&'b $generic),*, ) {
+            fn binding_resources(&self) -> SmallVec<BindGroupEntry> {
                 let ($([<$generic:lower>]),*,) = self;
                 let mut index = 0;
 
@@ -163,12 +162,12 @@ macro_rules! impl_into_binding_entries {
 
 tuple_impl!(impl_into_binding_entries; A B C D E F G H I J K L);
 
-impl<AS: AsShaderStages, AB: Binding> IntoLayout for (AS, AB) {
+impl<AS: AsShaderStages, AB: Binding> BindingEntries for (AS, AB) {
     type Bindings<'b> = &'b AB
     where
         Self: 'b;
 
-    fn into_binding_entries() -> &'static [BindGroupLayoutEntry] {
+    fn binding_entries() -> &'static [BindGroupLayoutEntry] {
         static LOCK: OnceLock<[BindGroupLayoutEntry; 1]> = OnceLock::new();
 
         LOCK.get_or_init(|| {
@@ -182,8 +181,8 @@ impl<AS: AsShaderStages, AB: Binding> IntoLayout for (AS, AB) {
     }
 }
 
-impl<'b, A: Binding> IntoBindingResources for &'b A {
-    fn into_binding_resources(&self) -> SmallVec<BindGroupEntry> {
+impl<'b, A: Binding> BindingResources for &'b A {
+    fn binding_resources(&self) -> SmallVec<BindGroupEntry> {
         SmallVec::from_iter([BindGroupEntry {
             binding: 0,
             resource: self.resource(),

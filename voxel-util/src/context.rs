@@ -13,7 +13,7 @@ use wgpu::{
 use winit::{dpi::PhysicalSize, window::Window};
 
 use crate::{
-    bind_group::{IntoBindingResources, IntoLayout, Layout, ShaderResource},
+    bind_group::{BindingEntries, BindingResources, Layout, ShaderResource},
     BasePipeline, RenderPipelineBuilder, VertexLayout,
 };
 
@@ -85,8 +85,8 @@ impl Context {
         })
     }
 
-    pub fn create_bind_group_layout<B: IntoLayout>(&self) -> Layout<B> {
-        let entries = B::into_binding_entries();
+    pub fn create_bind_group_layout<B: BindingEntries>(&self) -> Layout<B> {
+        let entries = B::binding_entries();
 
         Layout(
             self.device()
@@ -98,7 +98,7 @@ impl Context {
         )
     }
 
-    pub fn create_shader_resource<L: IntoLayout>(
+    pub fn create_shader_resource<L: BindingEntries>(
         &self,
         bindings: L::Bindings<'_>,
     ) -> ShaderResource {
@@ -108,12 +108,12 @@ impl Context {
         ShaderResource::new(bind_group, bind_group_layout.erase())
     }
 
-    pub fn create_bind_group<L: IntoLayout>(
+    pub fn create_bind_group<L: BindingEntries>(
         &self,
         layout: &Layout<L>,
         bindings: L::Bindings<'_>,
     ) -> BindGroup {
-        let resources = bindings.into_binding_resources();
+        let resources = bindings.binding_resources();
 
         self.device().create_bind_group(&BindGroupDescriptor {
             label: None,
