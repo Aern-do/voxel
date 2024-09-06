@@ -94,7 +94,7 @@ impl World {
             .iter()
             .copied()
             .map(|position| position + origin)
-            .filter(|position| self.chunks.get(position).is_some())
+            .filter(|position| self.chunks.contains_key(position))
             .collect::<Box<_>>();
         mesh_generator.set_visible(visible_chunks);
     }
