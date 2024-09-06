@@ -1,18 +1,18 @@
 pub mod bind_group;
 pub mod context;
 pub mod render_pipeline;
-pub mod texture;
 pub mod sampler;
-pub mod uniform;
 pub mod spritesheet;
+pub mod texture;
+pub mod uniform;
 
-pub use bind_group::{AsBindGroup, Binding, Fragment, Vertex, IntoLayout, ShaderResource};
+pub use bind_group::{AsBindGroup, Binding, BindingEntries, Fragment, ShaderResource, Vertex};
 pub use context::Context;
-pub use render_pipeline::{BasePipeline, RenderPipelineBuilder, ColorTargetStateExt, VertexLayout};
-pub use texture::Texture;
+pub use render_pipeline::{BasePipeline, ColorTargetStateExt, RenderPipelineBuilder, VertexLayout};
 pub use sampler::Sampler;
-pub use uniform::Uniform;
 pub use spritesheet::Spritesheet;
+pub use texture::Texture;
+pub use uniform::Uniform;
 
 #[macro_export]
 macro_rules! tuple_impl {
@@ -22,7 +22,7 @@ macro_rules! tuple_impl {
 
     (@reverse $generate_macro:ident;) => {};
     (@reverse $generate_macro:ident; @ $($x:ident)*) => {};
-    
+
     (@reverse $generate_macro:ident; $head:ident $($tail:ident)* @ $($xrev:ident)*) => {
         $generate_macro!($($xrev)* $head);
         tuple_impl!(@reverse $generate_macro; $($tail)* @ $($xrev)* $head);

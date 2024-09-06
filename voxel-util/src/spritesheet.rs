@@ -1,7 +1,7 @@
 use bytemuck::{Pod, Zeroable};
 use wgpu::FilterMode;
 
-use crate::{AsBindGroup, Context, Fragment, IntoLayout, Sampler, Texture, Uniform, Vertex};
+use crate::{AsBindGroup, BindingEntries, Context, Fragment, Sampler, Texture, Uniform, Vertex};
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
@@ -33,13 +33,13 @@ impl Spritesheet {
 }
 
 impl AsBindGroup for Spritesheet {
-    type Layout = (
+    type BindingEntries = (
         (Fragment, Texture),
         (Fragment, Sampler),
         (Vertex, Uniform<TextureAtlasUniform>),
     );
 
-    fn resources(&self) -> <Self::Layout as IntoLayout>::Bindings<'_> {
+    fn resources(&self) -> <Self::BindingEntries as BindingEntries>::Bindings<'_> {
         (&self.texture, &self.sampler, &self.uniform)
     }
 }

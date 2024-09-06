@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3};
-use voxel_util::{bind_group::VertexFragment, AsBindGroup, Context, IntoLayout, Uniform};
+use voxel_util::{bind_group::VertexFragment, AsBindGroup, BindingEntries, Context, Uniform};
 use winit::{dpi::PhysicalSize, event::ElementState, keyboard::KeyCode};
 
 #[repr(C)]
@@ -87,9 +87,9 @@ impl Camera {
 }
 
 impl AsBindGroup for Camera {
-    type Layout = ((VertexFragment, Uniform<CameraUniform>),);
+    type BindingEntries = ((VertexFragment, Uniform<CameraUniform>),);
 
-    fn resources(&self) -> <Self::Layout as IntoLayout>::Bindings<'_> {
+    fn resources(&self) -> <Self::BindingEntries as BindingEntries>::Bindings<'_> {
         (&self.uniform,)
     }
 }
