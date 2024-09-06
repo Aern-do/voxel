@@ -1,18 +1,20 @@
 pub mod block;
 pub mod chunk;
+mod chunks;
 pub mod face;
 pub mod generator;
 pub mod meshes;
 
 pub use block::{Block, Visibility};
-use chunk::{Chunk, ChunkSectionPosition, CHUNK_SIZE};
+use chunk::{ChunkSectionPosition, CHUNK_SIZE};
+pub use chunks::*;
 pub use face::{Direction, Face};
 use generator::{DefaultGenerator, Generate};
 use glam::IVec3;
 pub use meshes::RawMesh;
 use std::iter;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::LazyLock;
 
 use crate::application::MeshGenerator;
@@ -43,15 +45,23 @@ static VISIBLE_CHUNKS_OFFSETS: LazyLock<Box<[IVec3]>> = LazyLock::new(|| {
     res
 });
 
-#[derive(Default)]
 pub struct World {
-    chunks: HashMap<IVec3, Chunk>,
+    chunks: Chunks,
     generated_sections: HashSet<ChunkSectionPosition>,
     generator: DefaultGenerator,
     previous_origin: IVec3,
 }
 
 impl World {
+    pub fn new(chunks: Chunks) -> Self {
+        Self {
+            chunks,
+            generated_sections: Default::default(),
+            generator: Default::default(),
+            previous_origin: Default::default(),
+        }
+    }
+
     pub fn update(&mut self, camera: &Camera, mesh_generator: &MeshGenerator) {
         let origin = camera.transformation().position().as_ivec3() / CHUNK_SIZE as i32;
         if origin == self.previous_origin {
@@ -59,11 +69,11 @@ impl World {
         }
         self.previous_origin = origin;
 
-        self.update_chunks(origin, mesh_generator);
+        self.update_chunks(origin);
         self.update_visible_chunks(origin, mesh_generator);
     }
 
-    fn update_chunks(&mut self, origin: IVec3, mesh_generator: &MeshGenerator) {
+    fn update_chunks(&mut self, origin: IVec3) {
         let origin = origin.into();
         let new_sections_positions = {
             GENERATING_SECTIONS_OFFSETS
@@ -85,17 +95,20 @@ impl World {
             return;
         }
 
-        self.chunks.extend(new_chunks.iter().cloned());
-        mesh_generator.insert_chunks(new_chunks);
+        self.chunks.write().extend(new_chunks.iter().cloned());
     }
 
     fn update_visible_chunks(&self, origin: IVec3, mesh_generator: &MeshGenerator) {
-        let visible_chunks = VISIBLE_CHUNKS_OFFSETS
-            .iter()
-            .copied()
-            .map(|position| position + origin)
-            .filter(|position| self.chunks.contains_key(position))
-            .collect::<Box<_>>();
+        let visible_chunks = {
+            let chunks = self.chunks.read();
+            VISIBLE_CHUNKS_OFFSETS
+                .iter()
+                .copied()
+                .map(|position| position + origin)
+                .filter(|position| chunks.contains_key(position))
+                .collect::<Box<_>>()
+        };
+
         mesh_generator.set_visible(visible_chunks);
     }
 }

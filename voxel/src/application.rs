@@ -25,15 +25,10 @@ use crate::{
     camera::{Camera, Projection, Transformation},
     error::Error,
     render::{frustum_culling::Frustum, world_pass::ChunkBuffer, Renderer},
-    world::{
-        chunk::{Chunk, ChunkNeighborhood},
-        meshes::create_mesh,
-        World,
-    },
+    world::{chunk::ChunkNeighborhood, meshes::create_mesh, Chunks, World},
 };
 
 enum MeshGeneratorMessage {
-    InsertChunks { new_chunks: Box<[(IVec3, Chunk)]> },
     SetVisible { positions: Box<[IVec3]> },
 }
 
@@ -42,12 +37,6 @@ pub struct MeshGenerator(Sender<MeshGeneratorMessage>);
 impl MeshGenerator {
     fn new(sender: Sender<MeshGeneratorMessage>) -> Self {
         Self(sender)
-    }
-
-    pub fn insert_chunks(&self, new_chunks: Box<[(IVec3, Chunk)]>) {
-        self.0
-            .send(MeshGeneratorMessage::InsertChunks { new_chunks })
-            .unwrap();
     }
 
     pub fn set_visible(&self, positions: Box<[IVec3]>) {
@@ -95,8 +84,9 @@ impl Application {
             &context,
         );
 
+        let chunks = Chunks::default();
         let renderer = Renderer::new(camera.as_shader_resource(&context), Arc::clone(&context));
-        let world = World::default();
+        let world = World::new(chunks.clone());
 
         let (mesh_generator_sender, mesh_generator_receiver) = channel();
         let (to_generate_sender, to_generate_receiver) = channel();
@@ -104,17 +94,12 @@ impl Application {
 
         let mesh_generator = MeshGenerator::new(mesh_generator_sender);
         let meshes = Arc::new(Meshes::default());
-        let chunks = Arc::<RwLock<HashMap<IVec3, Chunk>>>::default();
         {
             let meshes = Arc::clone(&meshes);
-            let chunks = Arc::clone(&chunks);
+
             thread::spawn(move || {
                 for message in mesh_generator_receiver.iter() {
                     match message {
-                        MeshGeneratorMessage::InsertChunks { new_chunks } => {
-                            chunks.write().extend(new_chunks);
-                        }
-
                         MeshGeneratorMessage::SetVisible { positions } => {
                             let mut positions = positions.to_vec();
                             meshes.generated.write().retain(|mesh_position, _| {
@@ -134,7 +119,6 @@ impl Application {
         }
         {
             let context = Arc::clone(&context);
-            let chunks = Arc::clone(&chunks);
 
             rayon::spawn(move || {
                 let mut to_generate = to_generate_receiver.recv().unwrap();
@@ -147,9 +131,11 @@ impl Application {
                     to_generate
                         .par_drain(to_generate.len().saturating_sub(8)..)
                         .for_each(|position| {
-                            let chunks = chunks.read();
-                            let neighborhood = ChunkNeighborhood::new(&chunks, position);
-                            let mesh = create_mesh(neighborhood, &context);
+                            let mesh = {
+                                let chunks = chunks.read();
+                                let neighborhood = ChunkNeighborhood::new(&chunks, position);
+                                create_mesh(neighborhood, &context)
+                            };
 
                             mesh_sender.send((position, mesh)).unwrap();
                         });
