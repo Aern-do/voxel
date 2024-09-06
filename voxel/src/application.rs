@@ -33,8 +33,8 @@ use crate::{
 };
 
 enum MeshGeneratorMessage {
-    InsertChunks { new_chunks: Vec<(IVec3, Chunk)> },
-    SetVisible { positions: Vec<IVec3> },
+    InsertChunks { new_chunks: Box<[(IVec3, Chunk)]> },
+    SetVisible { positions: Box<[IVec3]> },
 }
 
 pub struct MeshGenerator(Sender<MeshGeneratorMessage>);
@@ -44,13 +44,13 @@ impl MeshGenerator {
         Self(sender)
     }
 
-    pub fn insert_chunks(&self, new_chunks: Vec<(IVec3, Chunk)>) {
+    pub fn insert_chunks(&self, new_chunks: Box<[(IVec3, Chunk)]>) {
         self.0
             .send(MeshGeneratorMessage::InsertChunks { new_chunks })
             .unwrap();
     }
 
-    pub fn set_visible(&self, positions: Vec<IVec3>) {
+    pub fn set_visible(&self, positions: Box<[IVec3]>) {
         self.0
             .send(MeshGeneratorMessage::SetVisible { positions })
             .unwrap();
@@ -115,7 +115,8 @@ impl Application {
                             chunks.write().extend(new_chunks);
                         }
 
-                        MeshGeneratorMessage::SetVisible { mut positions } => {
+                        MeshGeneratorMessage::SetVisible { positions } => {
+                            let mut positions = positions.to_vec();
                             meshes.generated.write().retain(|mesh_position, _| {
                                 positions
                                     .iter()

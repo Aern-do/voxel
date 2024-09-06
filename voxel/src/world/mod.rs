@@ -57,47 +57,45 @@ impl World {
         if origin == self.previous_origin {
             return;
         }
-
         self.previous_origin = origin;
 
-        {
-            let new_section_positions = {
-                GENERATING_SECTIONS_OFFSETS
-                    .iter()
-                    .copied()
-                    .map(|position| {
-                        ChunkSectionPosition::new(position.x + origin.x, position.z + origin.z)
-                    })
-                    .filter(|&position| self.generated_sections.insert(position))
-            };
+        self.update_chunks(origin, mesh_generator);
+        self.update_visible_chunks(origin, mesh_generator);
+    }
 
-            let new_chunks = new_section_positions
-                .flat_map(|position| {
-                    let section = self.generator.generate_section(position);
-                    section
-                        .into_chunks()
-                        .map(move |(y, chunk)| (position.with_y(y as i32), chunk))
-                })
-                .collect::<Vec<_>>();
-
-            if !new_chunks.is_empty() {
-                self.chunks.extend(new_chunks.iter().cloned());
-                mesh_generator.insert_chunks(new_chunks);
-            }
-        }
-
-        {
-            let visible_chunks = VISIBLE_CHUNKS_OFFSETS
+    fn update_chunks(&mut self, origin: IVec3, mesh_generator: &MeshGenerator) {
+        let origin = origin.into();
+        let new_sections_positions = {
+            GENERATING_SECTIONS_OFFSETS
                 .iter()
                 .copied()
                 .map(|position| position + origin)
-                .filter(|position| self.chunks.get(position).is_some())
-                .collect::<Vec<_>>();
-            mesh_generator.set_visible(visible_chunks);
+                .filter(|&position| self.generated_sections.insert(position))
+        };
+
+        let new_chunks = new_sections_positions
+            .flat_map(|position| {
+                let section = self.generator.generate_section(position);
+                section
+                    .into_chunks()
+                    .map(move |(y, chunk)| (position.with_y(y as i32), chunk))
+            })
+            .collect::<Box<_>>();
+        if new_chunks.is_empty() {
+            return;
         }
-        /* let elapsed = instant.elapsed();
-        if elapsed >= std::time::Duration::from_millis(1) {
-            println!("{:?}", instant.elapsed());
-        } */
+
+        self.chunks.extend(new_chunks.iter().cloned());
+        mesh_generator.insert_chunks(new_chunks);
+    }
+
+    fn update_visible_chunks(&self, origin: IVec3, mesh_generator: &MeshGenerator) {
+        let visible_chunks = VISIBLE_CHUNKS_OFFSETS
+            .iter()
+            .copied()
+            .map(|position| position + origin)
+            .filter(|position| self.chunks.get(position).is_some())
+            .collect::<Box<_>>();
+        mesh_generator.set_visible(visible_chunks);
     }
 }

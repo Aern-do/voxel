@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    ops::{Index, IndexMut},
+    ops::{Add, Index, IndexMut},
 };
 
 use glam::{uvec3, IVec3, UVec3};
@@ -199,6 +199,17 @@ impl From<(i32, i32)> for ChunkSectionPosition {
 impl From<IVec3> for ChunkSectionPosition {
     fn from(IVec3 { x, z, .. }: IVec3) -> Self {
         Self::new(x, z)
+    }
+}
+
+impl Add for ChunkSectionPosition {
+    type Output = Self;
+
+    fn add(self, other: Self) -> Self::Output {
+        Self {
+            x: self.x + other.x,
+            z: self.z + other.z,
+        }
     }
 }
 
