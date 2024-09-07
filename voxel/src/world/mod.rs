@@ -57,7 +57,7 @@ impl World {
         Self {
             chunks,
             generated_sections: Default::default(),
-            generator: Default::default(),
+            generator: DefaultGenerator::new(0),
             previous_origin: Default::default(),
         }
     }

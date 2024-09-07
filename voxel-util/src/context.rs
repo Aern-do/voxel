@@ -6,9 +6,9 @@ use std::{
 use thiserror::Error;
 use wgpu::{
     Backends, BindGroup, BindGroupDescriptor, BindGroupLayout, BindGroupLayoutDescriptor,
-    CreateSurfaceError, Device, DeviceDescriptor, Instance, InstanceDescriptor,
-    PipelineLayout, PipelineLayoutDescriptor, PowerPreference, PresentMode, Queue,
-    RequestAdapterOptions, RequestDeviceError, Surface, SurfaceConfiguration,
+    CreateSurfaceError, Device, DeviceDescriptor, Instance, InstanceDescriptor, PipelineLayout,
+    PipelineLayoutDescriptor, PowerPreference, PresentMode, Queue, RequestAdapterOptions,
+    RequestDeviceError, Surface, SurfaceConfiguration,
 };
 use winit::{dpi::PhysicalSize, window::Window};
 

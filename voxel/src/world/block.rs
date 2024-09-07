@@ -21,9 +21,13 @@ macro_rules! define_block {
 define_block!(
     Dirt: Opaque,
     Grass: Opaque,
-    Water: Transparent,
     Sand: Opaque,
+    Gravel: Opaque,
+    Ice: Opaque,
+    Snow: Opaque,
     Stone: Opaque,
+
+    Water: Transparent,
 
 
     #[default]
