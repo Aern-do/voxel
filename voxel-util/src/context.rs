@@ -6,7 +6,7 @@ use std::{
 use thiserror::Error;
 use wgpu::{
     Backends, BindGroup, BindGroupDescriptor, BindGroupLayout, BindGroupLayoutDescriptor,
-    CreateSurfaceError, Device, DeviceDescriptor, Features, Instance, InstanceDescriptor,
+    CreateSurfaceError, Device, DeviceDescriptor, Instance, InstanceDescriptor,
     PipelineLayout, PipelineLayoutDescriptor, PowerPreference, PresentMode, Queue,
     RequestAdapterOptions, RequestDeviceError, Surface, SurfaceConfiguration,
 };
@@ -42,7 +42,7 @@ impl Context {
         let size = window.inner_size();
 
         let instance = Instance::new(InstanceDescriptor {
-            backends: Backends::all(),
+            backends: Backends::PRIMARY,
             ..Default::default()
         });
         let surface = instance
@@ -59,13 +59,7 @@ impl Context {
             .ok_or(ContextError::Adapter)?;
 
         let (device, queue) = adapter
-            .request_device(
-                &DeviceDescriptor {
-                    required_features: Features::POLYGON_MODE_LINE,
-                    ..Default::default()
-                },
-                None,
-            )
+            .request_device(&DeviceDescriptor::default(), None)
             .await
             .map_err(ContextError::Device)?;
 

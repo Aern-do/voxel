@@ -67,9 +67,9 @@ impl Face {
                 uvec3(0, 1, 1),
             ],
             Direction::Bottom => [
-                uvec3(0, 0, 0),
-                uvec3(1, 0, 0),
                 uvec3(1, 0, 1),
+                uvec3(1, 0, 0),
+                uvec3(0, 0, 0),
                 uvec3(0, 0, 1),
             ],
             Direction::Left => [
