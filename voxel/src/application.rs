@@ -14,7 +14,7 @@ use rayon::iter::{ParallelDrainRange, ParallelIterator};
 use voxel_util::{AsBindGroup, Context};
 use winit::{
     application::ApplicationHandler,
-    dpi::{PhysicalPosition, PhysicalSize},
+    dpi::PhysicalSize,
     event::{DeviceEvent, DeviceId, ElementState, KeyEvent, WindowEvent},
     event_loop::ActiveEventLoop,
     keyboard::{KeyCode, PhysicalKey},
@@ -76,6 +76,7 @@ impl Application {
     pub async fn new(window: Window) -> Result<Self, Error> {
         let window = Arc::new(window);
         let _ = window.set_cursor_grab(CursorGrabMode::Locked);
+        window.set_cursor_visible(false);
 
         let context = Arc::new(Context::new(Arc::clone(&window)).await?);
         let camera = Camera::new(
@@ -143,6 +144,8 @@ impl Application {
             });
         }
 
+        window.request_redraw();
+
         Ok(Self {
             context,
             window,
@@ -198,13 +201,6 @@ impl Application {
     pub fn mouse_motion(&mut self, dx: f64, dy: f64) {
         self.camera.process_mouse(dx, dy);
     }
-
-    pub fn mouse_moved(&self) {
-        let size = self.window.inner_size();
-        let _ = self
-            .window
-            .set_cursor_position(PhysicalPosition::new(size.width / 2, size.height / 2));
-    }
 }
 
 impl ApplicationHandler for Application {
@@ -224,7 +220,6 @@ impl ApplicationHandler for Application {
                     },
                 ..
             } => self.keyboard_input(key_code, state),
-            WindowEvent::CursorMoved { .. } => self.mouse_moved(),
             _ => {}
         }
     }
