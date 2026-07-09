@@ -1,35 +1,23 @@
 # Voxel
-A performant voxel game engine built from scratch in Rust using [wgpu](https://github.com/gfx-rs/wgpu) graphics API.
+A voxel renderer I've written mainly to learn how graphics programming works.
 
+## Features
+- Some basic optimizations (frustum culling, tightly packed small vertices)
+- Basic fog implementation
+- Multithreaded chunk generation and meshing using [`rayon`](https://github.com/rayon-rs/rayon)
 
-## ✨ Features
-- Infinite procedural world generation
-- Multithreaded chunk and mesh generation
-- Optimized rendering with frustum culling
-- Ambient Occlusion
-- Atmospheric fog
-
-
-## 🖼️ Screenshots
+## Screenshots
 ![Screenshot 1](./screenshots/screenshot1.png)
 ![Screenshot 2](./screenshots/screenshot2.png)
 ![Screenshot 3](./screenshots/screenshot3.png)
 
-## 🚀 Quick Start
-
-### Prerequists
-- [Rust Toolchain](https://www.rust-lang.org/)
-
-### Installation
-
-1. Clone the repository: 
-
-```sh
-git clone https://github.com/Aern-do/voxel.git
-cd voxel
-```
-2. Run the project:
+## Running
+Build and run:
 
 ```sh
 cargo run --release
 ```
+
+or download binaries from GitHub releases.
+
+In the future, I might implement support for running it in the browser using WASM, though multithreading in WASM requires extra setup, so it may take a while to implement properly.
